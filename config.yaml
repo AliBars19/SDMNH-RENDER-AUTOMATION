@@ -1,0 +1,25 @@
+channels:
+  channel_url1: "https://www.youtube.com/@MoreSidemen"
+  channel_url2: "https://www.youtube.com/@Sidemen"
+
+download_path : "downloads"
+output_path: "outputs"
+db_path : videodb.json
+
+topics : 
+  among_us: ["among us"]
+  try_not_to_laugh: ["try not to laugh"]
+  the_price_is_right: ["the price is right"]
+  mukbang: ["mukbang"]
+  5_second_challenge : ["5 second challenge"]
+  holiday: ["holiday"]
+  mafia: ["mafia"]
+  guess_the_link: ["guess the link"]
+  guess_the_lyric: ["guess the lyric"]
+  hide_and_seek: ["hide and seek"]
+  guessmoji: ["guessmoji"]
+  general: []
+
+
+target_seconds: 18000 # 5hours, gna change
+yt_dlp_format: "bv*[vcodec~*=avc1][height=1080]+ba[acodec~*=mp4a]/b[vcodec~*=avc1][height=1080]/b[ext=mp4]"
