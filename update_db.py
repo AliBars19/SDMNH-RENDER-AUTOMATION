@@ -84,7 +84,29 @@ existing_ids = {video["id"] for video in data if "id" in video}
 
 new_videos = [v for v in clean_videos if v.get("id") not in existing_ids]
 
+def assign_topic(title,topics_cfg):
+    title_lower = (title or "").lower()
+    for topics_name, keywords in topics_cfg.items():
+        if topics_name == "general":
+            continue
+        for kw in keywords:
+            if kw.lower() in title_lower:
+                return topics_name
+    return "general"
 
+for v in new_videos:
+    v["topics"] = assign_topic(v.get("title"), cfg["topics"])
+    v["used in compilation"] = []
 
+combined = data + new_videos
+combined.sort(key=lambda x: x.get("upload date", ""), reverse=True)   
 
+with open(db_path,'w', encoding='utf-8') as f:
+    json.dump(combined, f , ensure_ascii=False, indent=2)
 
+print(f" Added {len(new_videos)} new videos")
+print(f" Total videos in DB: {len(combined)}")
+topics_count = {}
+print(" Topic distribution:")
+for t, c in topics_count.items():
+    print(f"   - {t}: {c}")
