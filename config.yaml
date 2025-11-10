@@ -1,6 +1,6 @@
 channels:
-  channel_url1: "https://www.youtube.com/@MoreSidemen"
-  channel_url2: "https://www.youtube.com/@Sidemen"
+  - "https://www.youtube.com/@MoreSidemen"
+  - "https://www.youtube.com/@Sidemen"
 
 download_path : "downloads"
 output_path: "outputs"
