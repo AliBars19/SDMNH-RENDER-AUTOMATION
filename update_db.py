@@ -95,7 +95,7 @@ def assign_topic(title,topics_cfg):
     return "general"
 
 for v in new_videos:
-    v["topics"] = assign_topic(v.get("title"), cfg["topics"])
+    v["topic"] = assign_topic(v.get("title"), cfg["topics"])
     v["used in compilation"] = []
 
 combined = data + new_videos
@@ -106,7 +106,4 @@ with open(db_path,'w', encoding='utf-8') as f:
 
 print(f" Added {len(new_videos)} new videos")
 print(f" Total videos in DB: {len(combined)}")
-topics_count = {}
-print(" Topic distribution:")
-for t, c in topics_count.items():
-    print(f"   - {t}: {c}")
+
