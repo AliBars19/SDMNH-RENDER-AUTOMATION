@@ -38,7 +38,7 @@ else:
 # note: assign each video an id, this is gna help check if the video already exists in DB
 
 bothchannels = []
-cutoff_year = 2020
+cutoff_year = 2025
 
 for channel_url in cfg["channels"]: # loop through 2 channels and dump json
 
@@ -57,7 +57,7 @@ for channel_url in cfg["channels"]: # loop through 2 channels and dump json
         upload_date = vid_info.get("upload_date")
         if upload_date:
             year = int(str(upload_date)[:4])
-            if year < cutoff_year:
+            if year <= cutoff_year:
                 continue
             
         bothchannels.append(vid_info)
