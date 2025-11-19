@@ -1328,7 +1328,10 @@
     "upload_date": null,
     "channel": "@MoreSidemen",
     "topic": "hide_and_seek",
-    "used in compilation": []
+    "used in compilation": [],
+    "used_in_compilation": [
+      "outputs\\hide_and_seek_compilation_2025-11-18_22-11-29.mp4"
+    ]
   },
   {
     "id": "_y7lWuUo7oM",
@@ -6515,7 +6518,10 @@
     "upload_date": null,
     "channel": "@MoreSidemen",
     "topic": "hide_and_seek",
-    "used in compilation": []
+    "used in compilation": [],
+    "used_in_compilation": [
+      "outputs\\hide_and_seek_compilation_2025-11-18_22-11-29.mp4"
+    ]
   },
   {
     "id": "kBbmfNf3sXk",
@@ -9521,7 +9527,10 @@
     "upload_date": null,
     "channel": "@MoreSidemen",
     "topic": "hide_and_seek",
-    "used in compilation": []
+    "used in compilation": [],
+    "used_in_compilation": [
+      "outputs\\hide_and_seek_compilation_2025-11-18_22-11-29.mp4"
+    ]
   },
   {
     "id": "HueDpi4_9b0",
@@ -11154,7 +11163,10 @@
     "upload_date": null,
     "channel": "@MoreSidemen",
     "topic": "hide_and_seek",
-    "used in compilation": []
+    "used in compilation": [],
+    "used_in_compilation": [
+      "outputs\\hide_and_seek_compilation_2025-11-18_22-11-29.mp4"
+    ]
   },
   {
     "id": "I1WLLNM9SL0",
@@ -13057,7 +13069,10 @@
     "upload_date": null,
     "channel": "@Sidemen",
     "topic": "hide_and_seek",
-    "used in compilation": []
+    "used in compilation": [],
+    "used_in_compilation": [
+      "outputs\\hide_and_seek_compilation_2025-11-18_22-11-29.mp4"
+    ]
   },
   {
     "id": "U4gv24-TQ6A",
@@ -13207,7 +13222,10 @@
     "upload_date": null,
     "channel": "@Sidemen",
     "topic": "hide_and_seek",
-    "used in compilation": []
+    "used in compilation": [],
+    "used_in_compilation": [
+      "outputs\\hide_and_seek_compilation_2025-11-18_22-11-29.mp4"
+    ]
   },
   {
     "id": "EE6YRQABzEI",
@@ -13407,7 +13425,10 @@
     "upload_date": null,
     "channel": "@Sidemen",
     "topic": "hide_and_seek",
-    "used in compilation": []
+    "used in compilation": [],
+    "used_in_compilation": [
+      "outputs\\hide_and_seek_compilation_2025-11-18_22-11-29.mp4"
+    ]
   },
   {
     "id": "6B30-mxJoYc",
@@ -13487,7 +13508,10 @@
     "upload_date": null,
     "channel": "@Sidemen",
     "topic": "hide_and_seek",
-    "used in compilation": []
+    "used in compilation": [],
+    "used_in_compilation": [
+      "outputs\\hide_and_seek_compilation_2025-11-18_22-11-29.mp4"
+    ]
   },
   {
     "id": "PeCBE33DYYI",
@@ -13637,7 +13661,10 @@
     "upload_date": null,
     "channel": "@Sidemen",
     "topic": "hide_and_seek",
-    "used in compilation": []
+    "used in compilation": [],
+    "used_in_compilation": [
+      "outputs\\hide_and_seek_compilation_2025-11-18_22-11-29.mp4"
+    ]
   },
   {
     "id": "GzdNMzvhNXY",
@@ -13717,7 +13744,10 @@
     "upload_date": null,
     "channel": "@Sidemen",
     "topic": "hide_and_seek",
-    "used in compilation": []
+    "used in compilation": [],
+    "used_in_compilation": [
+      "outputs\\hide_and_seek_compilation_2025-11-18_22-11-29.mp4"
+    ]
   },
   {
     "id": "WSKAIKqXYqE",
@@ -15879,6 +15909,16 @@
     "duration": 6263.0,
     "upload_date": null,
     "channel": "@Sidemen",
+    "topic": "general",
+    "used in compilation": []
+  },
+  {
+    "id": "CkzmBOUgeHg",
+    "title": "SIDEMEN UNO: ELIMINATION EDITION",
+    "url": "https://www.youtube.com/watch?v=CkzmBOUgeHg",
+    "duration": 1882.0,
+    "upload_date": null,
+    "channel": "@MoreSidemen",
     "topic": "general",
     "used in compilation": []
   }
