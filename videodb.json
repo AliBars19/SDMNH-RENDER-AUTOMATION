@@ -2477,7 +2477,10 @@
     "upload_date": null,
     "channel": "@MoreSidemen",
     "topic": "5_second_challenge",
-    "used in compilation": []
+    "used in compilation": [],
+    "used_in_compilation": [
+      "outputs\\5_second_challenge_compilation_2025-11-19_10-25-49.mp4"
+    ]
   },
   {
     "id": "r103jJ-yq_I",
@@ -3436,7 +3439,10 @@
     "upload_date": null,
     "channel": "@MoreSidemen",
     "topic": "5_second_challenge",
-    "used in compilation": []
+    "used in compilation": [],
+    "used_in_compilation": [
+      "outputs\\5_second_challenge_compilation_2025-11-19_10-25-49.mp4"
+    ]
   },
   {
     "id": "p2sJTZrGjRY",
@@ -3949,7 +3955,10 @@
     "upload_date": null,
     "channel": "@MoreSidemen",
     "topic": "5_second_challenge",
-    "used in compilation": []
+    "used in compilation": [],
+    "used_in_compilation": [
+      "outputs\\5_second_challenge_compilation_2025-11-19_10-25-49.mp4"
+    ]
   },
   {
     "id": "_Toh-U1u3_Q",
@@ -6801,7 +6810,10 @@
     "upload_date": null,
     "channel": "@MoreSidemen",
     "topic": "5_second_challenge",
-    "used in compilation": []
+    "used in compilation": [],
+    "used_in_compilation": [
+      "outputs\\5_second_challenge_compilation_2025-11-19_10-25-49.mp4"
+    ]
   },
   {
     "id": "IvS9ECKfRAQ",
@@ -8661,7 +8673,10 @@
     "upload_date": null,
     "channel": "@MoreSidemen",
     "topic": "5_second_challenge",
-    "used in compilation": []
+    "used in compilation": [],
+    "used_in_compilation": [
+      "outputs\\5_second_challenge_compilation_2025-11-19_10-25-49.mp4"
+    ]
   },
   {
     "id": "dtNIbIedChg",
@@ -15917,6 +15932,26 @@
     "title": "SIDEMEN UNO: ELIMINATION EDITION",
     "url": "https://www.youtube.com/watch?v=CkzmBOUgeHg",
     "duration": 1882.0,
+    "upload_date": null,
+    "channel": "@MoreSidemen",
+    "topic": "general",
+    "used in compilation": []
+  },
+  {
+    "id": "DrJk5SYbh_M",
+    "title": "HOW WELL DO THE SIDEMEN KNOW EACH OTHER?",
+    "url": "https://www.youtube.com/watch?v=DrJk5SYbh_M",
+    "duration": 801.0,
+    "upload_date": null,
+    "channel": "@MoreSidemen",
+    "topic": "general",
+    "used in compilation": []
+  },
+  {
+    "id": "QmZA0xQEZYY",
+    "title": "SIDEMEN GTA BUT THE CAR GETS FASTER EVERY LAP",
+    "url": "https://www.youtube.com/watch?v=QmZA0xQEZYY",
+    "duration": 1579.0,
     "upload_date": null,
     "channel": "@MoreSidemen",
     "topic": "general",
