@@ -61,6 +61,21 @@ except ValueError:
     video_count = 10
 
 # ----------------------------- SELECT VIDEOS ----------------------------------------
+def is_on_cooldown(video):
+    used_list = video.get("used_in_compilation", [])
+    if not used_list:
+        return False  # Never used → not on cooldown
+
+    # Extract most recent usage time
+    last_used_str = used_list[-1]  # path contains timestamp
+    try:
+        # Extract timestamp from filename
+        ts_part = last_used_str.split("_compilation_")[-1].replace(".mp4", "")
+        last_used_dt = datetime.strptime(ts_part, "%Y-%m-%d_%H-%M-%S")
+    except Exception:
+        return False  # If parsing fails, treat as unused
+
+    return datetime.now() - last_used_dt < timedelta(days=cooldown_time)
 
 topic_videos = [v for v in data if v.get("topic") == video_topic]
 topic_videos.sort(key=lambda v: v.get("upload_date") or "", reverse=True)
@@ -163,21 +178,7 @@ print(f"\n Compilation created: {output_path}")
 
 # ----------------------------- UPDATE DATABASE --------------------------------------
 
-def is_on_cooldown(video):
-    used_list = video.get("used_in_compilation", [])
-    if not used_list:
-        return False  # Never used → not on cooldown
 
-    # Extract most recent usage time
-    last_used_str = used_list[-1]  # path contains timestamp
-    try:
-        # Extract timestamp from filename
-        ts_part = last_used_str.split("_compilation_")[-1].replace(".mp4", "")
-        last_used_dt = datetime.strptime(ts_part, "%Y-%m-%d_%H-%M-%S")
-    except Exception:
-        return False  # If parsing fails, treat as unused
-
-    return datetime.now() - last_used_dt < timedelta(days=cooldown_time)
 
 
 for v in selected_videos:
