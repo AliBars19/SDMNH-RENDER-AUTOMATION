@@ -64,17 +64,14 @@ except ValueError:
 def is_on_cooldown(video):
     used_list = video.get("used_in_compilation", [])
     if not used_list:
-        return False  # Never used → not on cooldown
+        return False  
 
-    # Extract most recent usage time
-    last_used_str = used_list[-1]  # path contains timestamp
+    last_used_str = used_list[-1]  
     try:
-        # Extract timestamp from filename
         ts_part = last_used_str.split("_compilation_")[-1].replace(".mp4", "")
         last_used_dt = datetime.strptime(ts_part, "%Y-%m-%d_%H-%M-%S")
     except Exception:
-        return False  # If parsing fails, treat as unused
-
+        return False  
     return datetime.now() - last_used_dt < timedelta(days=cooldown_time)
 
 topic_videos = [v for v in data if v.get("topic") == video_topic]
@@ -96,11 +93,9 @@ used_but_allowed = [v for v in topic_videos if v not in cooled_videos]  # still 
 print(f" Found {len(cooled_videos)} cooled/down videos for topic '{video_topic}'.")
 
 if len(cooled_videos) >= video_count:
-    # We have enough unused videos
     selected_videos = cooled_videos[:video_count]
 
 else:
-    # Not enough videos → use all cooled first, then fill with cooldown videos
     needed = video_count - len(cooled_videos)
     selected_videos = cooled_videos + used_but_allowed[:needed]
 
@@ -177,9 +172,6 @@ if result.returncode != 0:
 print(f"\n Compilation created: {output_path}")
 
 # ----------------------------- UPDATE DATABASE --------------------------------------
-
-
-
 
 for v in selected_videos:
     used = v.setdefault("used_in_compilation", [])
