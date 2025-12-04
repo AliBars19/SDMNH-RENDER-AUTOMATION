@@ -3,7 +3,7 @@ import json
 import yaml
 import random
 import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # ----------------------------- LOAD CONFIG + DATABASE --------------------------------
 
@@ -16,9 +16,11 @@ with open(config_file, "r", encoding="utf-8") as f:
 
 db_path = cfg.get("db_path", "videos_db.json")
 
+cooldown_time = cfg.get("cooldown_time")
+
 required_keys = [
     "channels", "download_path", "output_path",
-    "db_path", "topics", "target_seconds", "yt_dlp_format"
+    "db_path","cooldown_time", "topics", "target_seconds", "yt_dlp_format"
 ]
 missing = [key for key in required_keys if key not in cfg]
 if missing:
@@ -70,19 +72,25 @@ def is_excluded(v):
     title = (v.get("title") or "").lower()
     return any(bad.lower() in title for bad in exclude_words)
 
-# --- NEW SELECTION LOGIC ---
-if len(topic_videos) == 0:
-    print(f" No '{video_topic}' videos found — using random filler instead.\n")
-    filler_pool = [v for v in data if not is_excluded(v)]
-    random.shuffle(filler_pool)
-    selected_videos = filler_pool[:video_count]
 
-elif len(topic_videos) < video_count:
-    print(f" Only {len(topic_videos)} '{video_topic}' videos found — using all of them (no filler).")
-    selected_videos = topic_videos
+unused_videos = [v for v in topic_videos if not is_on_cooldown(v)]
+cooled_videos = [v for v in unused_videos]
+
+used_but_allowed = [v for v in topic_videos if v not in cooled_videos]  # still on cooldown
+
+print(f" Found {len(cooled_videos)} cooled/down videos for topic '{video_topic}'.")
+
+if len(cooled_videos) >= video_count:
+    # We have enough unused videos
+    selected_videos = cooled_videos[:video_count]
 
 else:
-    selected_videos = topic_videos[:video_count]
+    # Not enough videos → use all cooled first, then fill with cooldown videos
+    needed = video_count - len(cooled_videos)
+    selected_videos = cooled_videos + used_but_allowed[:needed]
+
+print(f"\nSelected {len(selected_videos)} videos for topic '{video_topic}'.\n")
+
 
 print(f"\nSelected {len(selected_videos)} videos for topic '{video_topic}'.\n")
 
@@ -154,6 +162,23 @@ if result.returncode != 0:
 print(f"\n Compilation created: {output_path}")
 
 # ----------------------------- UPDATE DATABASE --------------------------------------
+
+def is_on_cooldown(video):
+    used_list = video.get("used_in_compilation", [])
+    if not used_list:
+        return False  # Never used → not on cooldown
+
+    # Extract most recent usage time
+    last_used_str = used_list[-1]  # path contains timestamp
+    try:
+        # Extract timestamp from filename
+        ts_part = last_used_str.split("_compilation_")[-1].replace(".mp4", "")
+        last_used_dt = datetime.strptime(ts_part, "%Y-%m-%d_%H-%M-%S")
+    except Exception:
+        return False  # If parsing fails, treat as unused
+
+    return datetime.now() - last_used_dt < timedelta(days=cooldown_time)
+
 
 for v in selected_videos:
     used = v.setdefault("used_in_compilation", [])

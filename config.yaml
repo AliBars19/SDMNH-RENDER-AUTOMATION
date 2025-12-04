@@ -6,6 +6,8 @@ download_path : "downloads"
 output_path: "outputs"
 db_path : videodb.json
 
+cooldown_time: 30
+
 topics : 
   among_us: ["among us"]
   try_not_to_laugh: ["try not to laugh"]
