@@ -105,6 +105,11 @@ print(f"\nSelected {len(selected_videos)} videos for topic '{video_topic}'.\n")
 print(f"\nSelected {len(selected_videos)} videos for topic '{video_topic}'.\n")
 
 # ----------------------------- DOWNLOAD VIDEOS --------------------------------------
+import re
+
+def sanitize_filename(name):
+    # Removes characters that break Windows and FFmpeg
+    return re.sub(r'[<>:"/\\|?*\']', '', name)
 
 print("Starting downloads...\n")
 download_dir = cfg["download_path"]
@@ -113,12 +118,16 @@ for i, v in enumerate(selected_videos, 1):
     url = v.get("url")
     title = v.get("title")
     print(f"({i}/{len(selected_videos)}) Downloading: {title}")
+    safe_output = os.path.join(download_dir, "%(title).200s [%(id)s].%(ext)s")
+
     cmd = [
         "yt-dlp",
         "-f", yt_format,
-        "-o", os.path.join(download_dir, "%(title).200s [%(id)s].%(ext)s"),
+        "--output", safe_output,
+        "--restrict-filenames",  # <--- THIS IS THE MAGIC FIX
         url,
     ]
+
     result = subprocess.run(cmd)
     if result.returncode != 0:
         print(f" Download failed for: {title}")
