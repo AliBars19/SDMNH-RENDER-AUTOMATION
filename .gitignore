@@ -1,4 +1,31 @@
-# Ignore AE template
-/client.json
-/downloads/
-/outputs/
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+venv/
+env/
+*.egg-info/
+
+# Data files
+data/downloads/
+data/outputs/
+data/*.db
+*.json
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary
+tmp/
+*.tmp
+concat_list.txt

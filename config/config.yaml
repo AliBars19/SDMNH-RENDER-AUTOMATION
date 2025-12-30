@@ -1,0 +1,31 @@
+channels:
+  - "https://www.youtube.com/@MoreSidemen"
+  - "https://www.youtube.com/@Sidemen"
+
+download_path: "data/downloads"
+output_path: "data/outputs"
+db_path: "data/videos.db"
+
+cooldown_days: 30
+
+topics:
+  among_us: ["among us"]
+  try_not_to_laugh: ["try not to laugh", "tntl"]
+  the_price_is_right: ["the price is right", "price is right"]
+  mukbang: ["mukbang", "eating"]
+  five_second_challenge: ["5 second challenge", "five second challenge"]
+  holiday: ["holiday", "vacation"]
+  mafia: ["mafia"]
+  guess_the_link: ["guess the link"]
+  guess_the_lyric: ["guess the lyric", "lyrics"]
+  hide_and_seek: ["hide and seek", "hide & seek"]
+  guessmoji: ["guessmoji", "guess emoji"]
+  general: []
+
+# Download settings
+max_concurrent_downloads: 3
+retry_attempts: 3
+download_timeout: 3600
+
+
+yt_dlp_format: "bv*[vcodec^=avc1][height<=1080]+ba[acodec^=mp4a]/b[ext=mp4]"

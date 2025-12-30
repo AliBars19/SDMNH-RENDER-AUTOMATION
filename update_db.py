@@ -1,109 +1,157 @@
 import os
 import json
 import yaml
-import yt_dlp
 import subprocess
-import datetime
+from datetime import datetime
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn
 
-config_file = "config.yaml"
+from src.database import Database, Video
 
-#-------------------------------LOAD CONFIG FILE & KEY CHECKER ----------------------------------------------------------------------
-
-if not os.path.exists(config_file):
-    raise FileNotFoundError(f"your config file has been moved or deleted")
-
-with open(config_file,'r') as f:
-    cfg = yaml.safe_load(f)
-
-db_path = cfg.get("db_path", "videodb.json")
-
-required_keys = ['channels', 'download_path', 'output_path', 'db_path', 'topics', 'target_seconds', 'yt_dlp_format']
-missing = [key for key in required_keys if key not in cfg ]
-
-if missing:
-    raise KeyError("missing key bro ")
+console = Console()
 
 
+def load_config(config_path="config/config.yaml"):
+    if not os.path.exists(config_path):
+        console.print(f"[red]Error: {config_path} not found[/red]")
+        exit(1)
+    
+    with open(config_path, 'r') as f:
+        cfg = yaml.safe_load(f)
+    
+    # Validate required keys
+    required = ['channels', 'download_path', 'output_path', 'db_path', 'topics', 'yt_dlp_format']
+    missing = [k for k in required if k not in cfg]
+    if missing:
+        console.print(f"[red]Error: Missing config keys: {missing}[/red]")
+        exit(1)
+    
+    return cfg
 
-#---------------------------------- LOAD EXISTING DATABASE IF IT EXISTS-----------------------------------------------------------
-#note: if it exists then your updating ur data base, if not (aka ur first time) then ur initialiseing it
-if os.path.exists(db_path):
-    with open(db_path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-        
-else:
-    data = []
 
-#---------------------------------FETCH METADATA FROM YOUTUBE (BOTH CHANNELS)---------------------------------------------------------------------
-# note: assign each video an id, this is gna help check if the video already exists in DB
-
-bothchannels = []
-cutoff_year = 2025
-
-for channel_url in cfg["channels"]: # loop through 2 channels and dump json
-
-    cmd = ["python","-m","yt_dlp","--flat-playlist","--dump-json",channel_url]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-
+def scrape_channel(channel_url):
+    cmd = ["yt-dlp", "--flat-playlist", "--dump-json", "--no-warnings", channel_url]
+    
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    except subprocess.TimeoutExpired:
+        console.print(f"[yellow]Warning: Timeout scraping {channel_url}[/yellow]")
+        return []
+    
+    videos = []
     for line in result.stdout.splitlines():
-        vid_info = json.loads(line)
-        url = vid_info.get("url") or vid_info.get("webpage_url") or ""
-
-        if "shorts" in url.lower():
+        if not line.strip():
             continue
-
-        print(result.stdout[:500])
-
-        upload_date = vid_info.get("upload_date")
-        if upload_date:
-            year = int(str(upload_date)[:4])
-            if year <= cutoff_year:
+        
+        try:
+            vid_info = json.loads(line)
+            
+            # Skip shorts
+            url = vid_info.get("url", "") or vid_info.get("webpage_url", "")
+            if "shorts" in url.lower():
                 continue
             
-        bothchannels.append(vid_info)
-        
-
-def clean_data(raw):
-    url = raw.get("webpage_url") or raw.get("original_url") or raw.get("url")
-    return{
-        "id": raw.get("id"),
-        "title": raw.get("title"),
-        "url": raw.get("webpage_url") or raw.get("original_url"),
-        "duration": raw.get("duration"),
-        "upload_date": raw.get("upload_date"),
-        "channel": raw.get("playlist_uploader_id") or raw.get("channel")
-    }
-
-clean_videos = [clean_data(v) for v in bothchannels]
-
-print(f"cleaned data for {len(clean_videos)} videos. \n")
-#--------------------------------ASSIGN TOPICS TO EACH VIDEO & SAVE DATABASE(.json)-----------------------------------------------------------------------
-#note: check id if exists dont add
-
-existing_ids = {video["id"] for video in data if "id" in video}
-
-new_videos = [v for v in clean_videos if v.get("id") not in existing_ids]
-
-def assign_topic(title,topics_cfg):
-    title_lower = (title or "").lower()
-    for topics_name, keywords in topics_cfg.items():
-        if topics_name == "general":
+            # Filter by year (only 2020+)
+            upload_date = vid_info.get("upload_date")
+            if upload_date:
+                year = int(str(upload_date)[:4])
+                if year < 2020:
+                    continue
+            
+            videos.append({
+                "youtube_id": vid_info.get("id"),
+                "title": vid_info.get("title"),
+                "url": vid_info.get("webpage_url") or vid_info.get("url"),
+                "duration": vid_info.get("duration"),
+                "upload_date": upload_date,
+                "channel": vid_info.get("channel") or vid_info.get("uploader")
+            })
+        except:
             continue
-        for kw in keywords:
-            if kw.lower() in title_lower:
-                return topics_name
+    
+    return videos
+
+
+def assign_topic(title, topics_config):
+    if not title:
+        return "general"
+    
+    title_lower = title.lower()
+    
+    for topic_name, keywords in topics_config.items():
+        if topic_name == "general":
+            continue
+        for keyword in keywords:
+            if keyword.lower() in title_lower:
+                return topic_name
+    
     return "general"
 
-for v in new_videos:
-    v["topic"] = assign_topic(v.get("title"), cfg["topics"])
-    v["used in compilation"] = []
 
-combined = data + new_videos
-combined.sort(key=lambda x: x.get("upload date", ""), reverse=True)   
+def main():
+    console.print("\n[bold cyan] Updating Video Database[/bold cyan]\n")
+    
+    # Load config
+    cfg = load_config()
+    
+    # Connect to database
+    db = Database(cfg['db_path'])
+    session = db.get_session()
+    
+    all_videos = []
+    
+    # Scrape each channel with progress
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console
+    ) as progress:
+        
+        for channel_url in cfg['channels']:
+            task = progress.add_task(f"Scraping {channel_url}...", total=None)
+            videos = scrape_channel(channel_url)
+            all_videos.extend(videos)
+            progress.update(task, description=f" Found {len(videos)} videos", completed=True)
+    
+    console.print(f"\n[green]Found {len(all_videos)} total videos[/green]")
+    
+    # Save to database
+    new_count = 0
+    
+    for vid_data in all_videos:
+        youtube_id = vid_data.get("youtube_id")
+        if not youtube_id:
+            continue
+        
+        # Check if exists
+        existing = session.query(Video).filter_by(youtube_id=youtube_id).first()
+        if existing:
+            continue
+        
+        # Assign topic
+        topic = assign_topic(vid_data.get("title"), cfg['topics'])
+        
+        # Create new video
+        video = Video(
+            youtube_id=youtube_id,
+            title=vid_data.get("title"),
+            url=vid_data.get("url"),
+            duration=vid_data.get("duration"),
+            upload_date=vid_data.get("upload_date"),
+            channel=vid_data.get("channel"),
+            topic=topic
+        )
+        
+        session.add(video)
+        new_count += 1
+    
+    session.commit()
+    session.close()
+    
+    total = session.query(Video).count()
+    console.print(f"\n[green] Added {new_count} new videos[/green]")
+    console.print(f"[green] Total videos in database: {total}[/green]\n")
 
-with open(db_path,'w', encoding='utf-8') as f:
-    json.dump(combined, f , ensure_ascii=False, indent=2)
 
-print(f" Added {len(new_videos)} new videos")
-print(f" Total videos in DB: {len(combined)}")
-
+if __name__ == "__main__":
+    main()
