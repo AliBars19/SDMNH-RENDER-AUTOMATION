@@ -69,6 +69,10 @@ def download_video(video, download_path, yt_format, retry_attempts=3):
                 "--output", output_template,
                 "--restrict-filenames",
                 "--no-warnings",
+                # Anti-403 options
+                "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "--referer", "https://www.youtube.com/",
+                "--extractor-args", "youtube:player_client=android,web",
                 video.url
             ]
             
@@ -81,9 +85,14 @@ def download_video(video, download_path, yt_format, retry_attempts=3):
             
         except Exception as e:
             if attempt < retry_attempts - 1:
+                console.print(f"[yellow]Download attempt {attempt + 1}/{retry_attempts} failed, retrying...[/yellow]")
                 continue
             else:
-                console.print(f"[yellow]Failed to download: {video.title[:50]}[/yellow]")
+                error_str = str(e)
+                if "403" in error_str or "Forbidden" in error_str:
+                    console.print(f"[yellow]Failed (403 - update yt-dlp!): {video.title[:50]}[/yellow]")
+                else:
+                    console.print(f"[yellow]Failed to download: {video.title[:50]}[/yellow]")
                 return None
     
     return None
@@ -152,7 +161,7 @@ def compile_videos(video_files, topic, output_path):
     result = subprocess.run(cmd, capture_output=True)
     
     if result.returncode == 0 and output_filepath.exists():
-        console.print(f"[green] Fast compilation successful[/green]")
+        console.print(f"[green]✓ Fast compilation successful[/green]")
         return output_filepath
     
     # Fallback: re-encode
@@ -171,7 +180,7 @@ def compile_videos(video_files, topic, output_path):
     result = subprocess.run(cmd, capture_output=True, timeout=3600)
     
     if result.returncode == 0 and output_filepath.exists():
-        console.print(f"[green] Re-encoded compilation successful[/green]")
+        console.print(f"[green]✓ Re-encoded compilation successful[/green]")
         return output_filepath
     
     console.print("[red]✗ Compilation failed[/red]")
@@ -195,7 +204,7 @@ def cleanup_downloads(download_path, keep_files=None):
 
 
 def main():
-    console.print("\n[bold cyan] Creating Video Compilation[/bold cyan]\n")
+    console.print("\n[bold cyan]🎬 Creating Video Compilation[/bold cyan]\n")
     
     # Load config
     cfg = load_config()
@@ -230,7 +239,7 @@ def main():
         console.print(f"[yellow]No videos found for topic '{topic}'[/yellow]")
         exit(0)
     
-    console.print(f"[green] Selected {len(videos)} videos[/green]\n")
+    console.print(f"[green]✓ Selected {len(videos)} videos[/green]\n")
     
     # Download videos
     max_workers = cfg.get('max_concurrent_downloads', 3)
@@ -243,9 +252,10 @@ def main():
     
     if not video_files:
         console.print("[red]No videos downloaded successfully[/red]")
+        console.print("[yellow]💡 Tip: Try updating yt-dlp: pip install -U yt-dlp[/yellow]")
         exit(1)
     
-    console.print(f"\n[green] Downloaded {len(video_files)}/{len(videos)} videos[/green]")
+    console.print(f"\n[green]✓ Downloaded {len(video_files)}/{len(videos)} videos[/green]")
     
     # Compile videos
     output_file = compile_videos(video_files, topic, cfg['output_path'])
@@ -276,7 +286,7 @@ def main():
     # Cleanup
     cleanup_downloads(cfg['download_path'], list(video_files.values()))
     
-    console.print(f"\n[green bold] Done![/green bold]")
+    console.print(f"\n[green bold]✅ Done![/green bold]")
     console.print(f"[green]Compilation saved: {output_file}[/green]\n")
 
 
