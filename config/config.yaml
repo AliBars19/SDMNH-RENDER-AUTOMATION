@@ -5,27 +5,120 @@ channels:
 download_path: "data/downloads"
 output_path: "data/outputs"
 db_path: "data/videos.db"
+thumbnail_path: "data/thumbnails"
+log_path: "data/automation.log"
 
+# Cooldown: don't reuse a video in compilations within this many days
 cooldown_days: 30
 
+# Maximum compilation duration in hours — videos are selected BEFORE download to stay under this
+max_compilation_hours: 12
+
+# Topics and their matching keywords (case-insensitive substring match on video title)
+# Add/remove topics here freely. "general" is the fallback for unmatched videos.
 topics:
-  among_us: ["among us"]
-  try_not_to_laugh: ["try not to laugh", "tntl"]
-  the_price_is_right: ["the price is right", "price is right"]
-  mukbang: ["mukbang", "eating"]
-  five_second_challenge: ["5 second challenge", "five second challenge"]
-  holiday: ["holiday", "vacation"]
-  mafia: ["mafia"]
-  guess_the_link: ["guess the link"]
-  guess_the_lyric: ["guess the lyric", "lyrics"]
-  hide_and_seek: ["hide and seek", "hide & seek"]
-  guessmoji: ["guessmoji", "guess emoji"]
+  among_us:
+    - "among us"
+  try_not_to_laugh:
+    - "try not to laugh"
+    - "tntl"
+  the_price_is_right:
+    - "the price is right"
+    - "price is right"
+  mukbang:
+    - "mukbang"
+    - "eating challenge"
+    - "food challenge"
+  five_second_challenge:
+    - "5 second challenge"
+    - "five second challenge"
+  hide_and_seek:
+    - "hide and seek"
+    - "hide & seek"
+  mafia:
+    - "mafia"
+  guess_the_link:
+    - "guess the link"
+  guess_the_lyric:
+    - "guess the lyric"
+    - "guess the lyrics"
+  guessmoji:
+    - "guessmoji"
+    - "guess emoji"
+  sidemen_sunday:
+    - "sidemen sunday"
+  holiday:
+    - "holiday"
+    - "vacation"
+  road_trip:
+    - "road trip"
+  cooking:
+    - "cooking"
+    - "baking"
+    - "bake off"
+    - "masterchef"
+    - "chef"
+  dating:
+    - "tinder"
+    - "speed dating"
+    - "sidemen dating"
+  football:
+    - "football"
+    - "vs academy"
+    - "vs pro"
+  quiz:
+    - "quiz"
+    - "trivia"
+    - "knowledge"
+  charity:
+    - "charity"
+  would_you_rather:
+    - "would you rather"
+    - "wyr"
+  fashion:
+    - "fashion"
+    - "outfit"
+    - "clothing"
+    - "clothes"
+  ultimate:
+    - "ultimate"
+  tasting:
+    - "tasting"
+    - "taste test"
+    - "blind taste"
   general: []
 
 # Download settings
 max_concurrent_downloads: 3
 retry_attempts: 3
 download_timeout: 3600
+yt_dlp_format: "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
 
+# YouTube upload settings
+# FIRST-TIME SETUP: run `python automation.py --setup` to authenticate
+youtube:
+  # Download client_secrets.json from Google Cloud Console (see README)
+  credentials_path: "credentials/client_secrets.json"
+  token_path: "credentials/youtube_token.json"
+  # YouTube category IDs: 1=Film, 17=Sports, 19=Travel, 20=Gaming, 22=People & Blogs, 24=Entertainment
+  category_id: "24"
+  # Set to "private" while testing, then switch to "public"
+  privacy_status: "public"
+  description: |
+    Watch the best Sidemen {topic} moments all compiled into one video!
 
-yt_dlp_format: "bv*[vcodec^=avc1][height<=1080]+ba[acodec^=mp4a]/b[ext=mp4]"
+    All content belongs to the Sidemen. Posted with their permission.
+    Subscribe for more Sidemen compilations!
+
+    Channels featured:
+    @Sidemen — https://www.youtube.com/@Sidemen
+    @MoreSidemen — https://www.youtube.com/@MoreSidemen
+
+    #Sidemen #SidemenCompilation #MoreSidemen #{topic_tag}
+  tags:
+    - "sidemen"
+    - "sidemen compilation"
+    - "sidemen moments"
+    - "more sidemen"
+    - "best of sidemen"
+    - "sidemen highlights"

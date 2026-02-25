@@ -29,3 +29,5 @@ Thumbs.db
 tmp/
 *.tmp
 concat_list.txt
+
+cookies.txt
