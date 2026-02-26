@@ -18,7 +18,10 @@ NOTE: To upload custom thumbnails your YouTube channel must be verified
 
 import os
 import subprocess
+import urllib.request
 from pathlib import Path
+
+_NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -164,54 +167,30 @@ def build_tags(topic: str, base_tags: list) -> list:
 
 # ── Thumbnail ──────────────────────────────────────────────────────────────────
 
-def extract_thumbnail(source_video_paths: list, output_path: str) -> str | None:
+def extract_thumbnail(youtube_ids: list, output_path: str) -> str | None:
     """
-    Extract a representative frame from one of the source video paths and
-    save it as a JPEG thumbnail (1280×720, ≤ 2 MB).
+    Download the actual YouTube thumbnail from one of the source videos.
 
-    Tries each path in order; returns the output_path on success or None.
+    Tries maxresdefault (1280x720) then hqdefault (480x360) for each video ID
+    in order, stopping at the first usable image (> 5 KB to skip placeholders).
+    Returns output_path on success, None if all attempts fail.
     """
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
-    for video_path in source_video_paths:
-        if not Path(video_path).exists():
-            continue
-        try:
-            # Seek to 60 s into the video for a representative frame
-            cmd = [
-                'ffmpeg', '-y',
-                '-ss', '60',
-                '-i', str(video_path),
-                '-frames:v', '1',
-                '-vf', (
-                    'scale=1280:720:force_original_aspect_ratio=decrease,'
-                    'pad=1280:720:(ow-iw)/2:(oh-ih)/2:black'
-                ),
-                '-q:v', '3',
-                str(output_path)
-            ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-
-            if result.returncode != 0 or not os.path.exists(output_path):
+    for video_id in youtube_ids:
+        for quality in ('maxresdefault', 'sddefault', 'hqdefault'):
+            url = f'https://img.youtube.com/vi/{video_id}/{quality}.jpg'
+            try:
+                with urllib.request.urlopen(url, timeout=10) as resp:
+                    data = resp.read()
+                # Skip tiny placeholder images — real thumbnails are at least 5 KB
+                if len(data) < 5000:
+                    continue
+                with open(output_path, 'wb') as f:
+                    f.write(data)
+                return output_path
+            except Exception:
                 continue
-
-            size_mb = os.path.getsize(output_path) / (1024 * 1024)
-            if size_mb <= 2.0:
-                return output_path
-
-            # File too large — re-compress
-            import tempfile, shutil
-            tmp = str(output_path) + '.tmp.jpg'
-            subprocess.run(
-                ['ffmpeg', '-y', '-i', str(output_path), '-q:v', '10', tmp],
-                capture_output=True, text=True, timeout=15
-            )
-            if os.path.exists(tmp):
-                shutil.move(tmp, output_path)
-                return output_path
-
-        except Exception:
-            continue
 
     return None
 

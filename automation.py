@@ -39,6 +39,8 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
+_NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+
 # ── Path setup ────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).parent.resolve()
 sys.path.insert(0, str(BASE_DIR))
@@ -152,6 +154,7 @@ def update_database():
         [sys.executable, str(BASE_DIR / 'update_db.py')],
         cwd=str(BASE_DIR),
         timeout=600,
+        creationflags=_NO_WINDOW,
     )
     if result.returncode == 0:
         logging.info("Database refresh complete.")
@@ -315,6 +318,9 @@ def main():
 
     session.close()
 
+    # ── Mark today as started (prevents re-runs on restart even if something fails) ──
+    _save_json(LAST_RUN_FILE, {'date': datetime.utcnow().date().isoformat(), 'status': 'in_progress'})
+
     # ── Compile ──
     max_hours = cfg.get('max_compilation_hours', 12)
     logging.info(f"Starting compilation — topic: '{topic}', max duration: {max_hours}h")
@@ -338,7 +344,7 @@ def main():
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     thumbnail_path = str(thumb_dir / f'thumb_{timestamp}.jpg')
 
-    thumb = extract_thumbnail([output_file], thumbnail_path)
+    thumb = extract_thumbnail([v.youtube_id for v in selected_videos], thumbnail_path)
     if thumb:
         logging.info(f"Thumbnail extracted: {thumb}")
     else:

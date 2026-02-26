@@ -5,6 +5,8 @@ import yaml
 import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
+
+_NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
 from rich.console import Console
 from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn
 from pytubefix import YouTube
@@ -32,7 +34,7 @@ def get_video_duration(video_path):
             'ffprobe', '-v', 'quiet', '-print_format', 'json',
             '-show_format', str(video_path)
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, creationflags=_NO_WINDOW)
         data = json.loads(result.stdout)
         duration = data.get('format', {}).get('duration')
         if duration:
@@ -187,7 +189,7 @@ def download_video(video, download_path, use_oauth=True, retry_attempts=3):
                     "-c:a", "aac",
                     str(output_file)
                 ]
-                subprocess.run(cmd, check=True)
+                subprocess.run(cmd, check=True, capture_output=True, creationflags=_NO_WINDOW)
 
                 video_file.unlink()
                 audio_file.unlink()
@@ -311,7 +313,7 @@ def compile_videos(video_files, topic, output_path, auto_mode=False):
         "-movflags", "+faststart",
         str(output_filepath)
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600, creationflags=_NO_WINDOW)
 
     if result.returncode == 0 and output_filepath.exists() and output_filepath.stat().st_size > 1_000_000:
         console.print(f"[green]✓ Fast compilation successful[/green]")
@@ -337,7 +339,7 @@ def compile_videos(video_files, topic, output_path, auto_mode=False):
         "-movflags", "+faststart",
         str(output_filepath)
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=m2_timeout)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=m2_timeout, creationflags=_NO_WINDOW)
 
     if result.returncode == 0 and output_filepath.exists() and output_filepath.stat().st_size > 1_000_000:
         console.print(f"[green]✓ Compilation successful (frame-drop re-encode)[/green]")
@@ -374,7 +376,7 @@ def compile_videos(video_files, topic, output_path, auto_mode=False):
         "-pix_fmt", "yuv420p",
         str(output_filepath)
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=m3_timeout)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=m3_timeout, creationflags=_NO_WINDOW)
 
     if result.returncode == 0 and output_filepath.exists() and output_filepath.stat().st_size > 1_000_000:
         console.print(f"[green]✓ Compilation successful (full re-encode)[/green]")
