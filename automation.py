@@ -99,7 +99,10 @@ def _save_json(path: Path, data: dict):
 
 def already_ran_today() -> bool:
     data = _load_json(LAST_RUN_FILE)
-    return data.get('date') == datetime.utcnow().date().isoformat()
+    if data.get('date') != datetime.utcnow().date().isoformat():
+        return False
+    # Allow a retry if today's run never produced a successful upload
+    return data.get('video_id') is not None
 
 
 def record_run(topic: str, title: str, video_id: str | None, duration_seconds: float):
@@ -344,7 +347,7 @@ def main():
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     thumbnail_path = str(thumb_dir / f'thumb_{timestamp}.jpg')
 
-    thumb = extract_thumbnail([v.youtube_id for v in selected_videos], thumbnail_path)
+    thumb = extract_thumbnail(selected_videos, thumbnail_path)
     if thumb:
         logging.info(f"Thumbnail extracted: {thumb}")
     else:

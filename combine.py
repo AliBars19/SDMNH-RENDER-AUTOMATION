@@ -461,6 +461,11 @@ def run_auto(topic, max_hours=12, cfg=None):
             (v.duration or 3600) for v in videos if v.id in video_files
         )
 
+    # Capture youtube_ids as plain strings while the session is still open.
+    # After session.commit() SQLAlchemy expires all ORM attributes, and accessing
+    # them on detached objects outside this function raises DetachedInstanceError.
+    selected_youtube_ids = [v.youtube_id for v in videos]
+
     # ── Record compilation in database ──
     try:
         compilation = Compilation(
@@ -487,7 +492,7 @@ def run_auto(topic, max_hours=12, cfg=None):
     # ── Clean up source downloads ──
     cleanup_downloads(cfg['download_path'])
 
-    return output_file, total_seconds, videos
+    return output_file, total_seconds, selected_youtube_ids
 
 
 # ── Interactive CLI entry-point (unchanged behaviour) ─────────────────────────
