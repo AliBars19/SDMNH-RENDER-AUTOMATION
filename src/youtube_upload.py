@@ -287,3 +287,64 @@ def set_thumbnail(service, video_id: str, thumbnail_path: str) -> bool:
     except HttpError as e:
         print(f"  Warning: thumbnail upload failed: {e}")
         return False
+
+
+def wait_and_delete_when_public(
+    service,
+    video_id: str,
+    video_path,
+    poll_interval: int = 60,
+    max_wait_seconds: int = 7200,
+    log_fn=print,
+) -> bool:
+    """
+    Poll YouTube until the video is fully processed and public, then delete the
+    local output file to free disk space.
+
+    Polls every `poll_interval` seconds for up to `max_wait_seconds` (default 2 h).
+    Returns True if the file was deleted, False if timed out or an error occurred.
+    """
+    video_path = Path(video_path)
+    deadline = time.time() + max_wait_seconds
+    log_fn(
+        f"Waiting for YouTube to finish processing {video_id} "
+        f"(polling every {poll_interval}s, timeout {max_wait_seconds // 60} min)..."
+    )
+
+    while time.time() < deadline:
+        try:
+            resp = service.videos().list(
+                part='status',
+                id=video_id,
+            ).execute()
+            items = resp.get('items', [])
+            if items:
+                status = items[0].get('status', {})
+                upload_status = status.get('uploadStatus')
+                privacy_status = status.get('privacyStatus')
+                log_fn(f"  Video status: uploadStatus={upload_status}, privacyStatus={privacy_status}")
+
+                if upload_status == 'processed' and privacy_status == 'public':
+                    if video_path.exists():
+                        video_path.unlink()
+                        log_fn(f"Output file deleted (video is live): {video_path.name}")
+                    else:
+                        log_fn(f"Output file already gone: {video_path.name}")
+                    return True
+
+                if upload_status in ('failed', 'rejected'):
+                    log_fn(f"Video upload status is '{upload_status}' — retaining output file.")
+                    return False
+
+        except HttpError as e:
+            log_fn(f"  Warning: API error while checking video status: {e}")
+        except Exception as e:
+            log_fn(f"  Warning: unexpected error while checking video status: {e}")
+
+        time.sleep(poll_interval)
+
+    log_fn(
+        f"Timed out waiting for video to go public after {max_wait_seconds // 60} min "
+        f"— output file NOT deleted: {video_path.name}"
+    )
+    return False

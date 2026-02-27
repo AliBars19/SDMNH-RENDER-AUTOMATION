@@ -55,6 +55,7 @@ from src.youtube_upload import (
     format_title,
     set_thumbnail,
     upload_video,
+    wait_and_delete_when_public,
 )
 
 # ── State files ───────────────────────────────────────────────────────────────
@@ -366,6 +367,7 @@ def main():
 
     # ── Upload ──
     video_id = None
+    service = None
     try:
         service = authenticate(
             yt_cfg['credentials_path'],
@@ -404,6 +406,24 @@ def main():
 
     # ── Record run (even if upload failed, compilation is saved) ──
     record_run(topic, title, video_id, total_seconds)
+
+    # ── Delete output file once YouTube confirms the video is public ──
+    if video_id and service:
+        deleted = wait_and_delete_when_public(
+            service=service,
+            video_id=video_id,
+            video_path=output_file,
+            poll_interval=60,
+            max_wait_seconds=7200,
+            log_fn=logging.info,
+        )
+        if not deleted:
+            logging.warning(
+                f"Output file was NOT deleted (timed out or upload failed). "
+                f"You can delete it manually: {output_file}"
+            )
+    else:
+        logging.info(f"Upload did not complete — output file retained: {output_file.name}")
 
     logging.info('Automation complete.')
     logging.info('=' * 56)
