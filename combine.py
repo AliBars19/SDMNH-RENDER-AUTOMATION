@@ -492,6 +492,21 @@ def compile_videos(video_files, topic, output_path, auto_mode=False):
     return None
 
 
+def cleanup_stale_temps(download_path):
+    """Remove leftover temp files from crashed previous runs."""
+    removed = 0
+    dl = Path(download_path)
+    for pattern in ("temp_video_*.mp4", "temp_audio_*.m4a", "temp_prog_*.mp4"):
+        for f in dl.glob(pattern):
+            try:
+                f.unlink()
+                removed += 1
+            except Exception:
+                pass
+    if removed:
+        console.print(f"[dim]Cleaned up {removed} stale temp files from a previous run[/dim]")
+
+
 def cleanup_downloads(download_path, keep_files=None):
     keep_set = set(keep_files) if keep_files else set()
     removed = 0
@@ -526,6 +541,9 @@ def run_auto(topic, max_hours=12, cfg=None):
 
     os.makedirs(cfg['download_path'], exist_ok=True)
     os.makedirs(cfg['output_path'], exist_ok=True)
+
+    # ── Sweep leftover temp files from crashed previous runs ──
+    cleanup_stale_temps(cfg['download_path'])
 
     max_duration_seconds = int(max_hours * 3600)
     cooldown_days = cfg.get('cooldown_days', 30)
