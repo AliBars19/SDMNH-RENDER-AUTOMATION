@@ -45,6 +45,18 @@ def get_video_duration(video_path):
     return 0.0
 
 
+def _get_cooldown_video_ids(session, cooldown_days):
+    """Return a set of video IDs used in compilations within the cooldown window (single query)."""
+    cooldown_date = datetime.utcnow() - timedelta(days=cooldown_days)
+    rows = (
+        session.query(compilation_videos.c.video_id)
+        .join(Compilation)
+        .filter(Compilation.created_at >= cooldown_date)
+        .all()
+    )
+    return {r[0] for r in rows}
+
+
 def select_videos(session, topic, count, cooldown_days):
     """Interactive mode: select up to `count` videos for a topic."""
     all_videos = session.query(Video).filter(Video.topic == topic).order_by(
@@ -54,21 +66,13 @@ def select_videos(session, topic, count, cooldown_days):
     if not all_videos:
         return []
 
-    cooldown_date = datetime.utcnow() - timedelta(days=cooldown_days)
+    on_cooldown = _get_cooldown_video_ids(session, cooldown_days)
 
-    available = []
-    for video in all_videos:
-        recent_use = session.query(compilation_videos).join(Compilation).filter(
-            compilation_videos.c.video_id == video.id,
-            Compilation.created_at >= cooldown_date
-        ).first()
-
-        if not recent_use:
-            available.append(video)
+    available = [v for v in all_videos if v.id not in on_cooldown]
 
     # If not enough, use older ones too
     if len(available) < count:
-        used = [v for v in all_videos if v not in available]
+        used = [v for v in all_videos if v.id in on_cooldown]
         available.extend(used[:count - len(available)])
 
     return available[:count]
@@ -93,17 +97,13 @@ def select_videos_within_duration(session, topic, max_duration_seconds, cooldown
     if not all_videos:
         return []
 
-    cooldown_date = datetime.utcnow() - timedelta(days=cooldown_days)
+    on_cooldown = _get_cooldown_video_ids(session, cooldown_days)
 
     available = []
     cooldown_overflow = []
 
     for video in all_videos:
-        recent_use = session.query(compilation_videos).join(Compilation).filter(
-            compilation_videos.c.video_id == video.id,
-            Compilation.created_at >= cooldown_date
-        ).first()
-        if not recent_use:
+        if video.id not in on_cooldown:
             available.append(video)
         else:
             cooldown_overflow.append(video)
