@@ -313,11 +313,25 @@ def compile_videos(video_files, topic, output_path, auto_mode=False):
         "-movflags", "+faststart",
         str(output_filepath)
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600, creationflags=_NO_WINDOW)
+    m1_timeout = None if auto_mode else 600
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=m1_timeout, creationflags=_NO_WINDOW)
+        m1_ok = result.returncode == 0 and output_filepath.exists() and output_filepath.stat().st_size > 1_000_000
+    except subprocess.TimeoutExpired:
+        console.print("[yellow]  Stream-copy timed out — falling through to re-encode[/yellow]")
+        m1_ok = False
+        result = None
 
-    if result.returncode == 0 and output_filepath.exists() and output_filepath.stat().st_size > 1_000_000:
+    if m1_ok:
         console.print(f"[green]✓ Fast compilation successful[/green]")
         return output_filepath
+
+    if result is not None and result.returncode != 0 and result.stderr:
+        import logging
+        logging.warning(f"FFmpeg method 1 stderr: {result.stderr[:500]}")
+
+    if output_filepath.exists():
+        output_filepath.unlink()
 
     # ── METHOD 2: Frame-drop filter + fast re-encode ──
     console.print("[yellow]  Stream-copy failed — trying frame-drop re-encode...[/yellow]")
@@ -344,6 +358,13 @@ def compile_videos(video_files, topic, output_path, auto_mode=False):
     if result.returncode == 0 and output_filepath.exists() and output_filepath.stat().st_size > 1_000_000:
         console.print(f"[green]✓ Compilation successful (frame-drop re-encode)[/green]")
         return output_filepath
+
+    if result.stderr:
+        import logging
+        logging.warning(f"FFmpeg method 2 stderr: {result.stderr[:500]}")
+
+    if output_filepath.exists():
+        output_filepath.unlink()
 
     # ── METHOD 3: Full re-encode with normalisation (last resort) ──
     if not auto_mode:
@@ -382,8 +403,10 @@ def compile_videos(video_files, topic, output_path, auto_mode=False):
         console.print(f"[green]✓ Compilation successful (full re-encode)[/green]")
         return output_filepath
 
+    import logging
     console.print("[red]✗ All compilation methods failed[/red]")
     if result.stderr:
+        logging.error(f"FFmpeg method 3 stderr: {result.stderr[:500]}")
         console.print(f"[red]Error: {result.stderr[:300]}[/red]")
     return None
 

@@ -6,6 +6,8 @@ from datetime import datetime
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
+_NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+
 from src.database import Database, Video
 
 console = Console()
@@ -33,7 +35,7 @@ def scrape_channel(channel_url):
     cmd = ["yt-dlp", "--flat-playlist", "--dump-json", "--no-warnings", channel_url]
     
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, creationflags=_NO_WINDOW)
     except subprocess.TimeoutExpired:
         console.print(f"[yellow]Warning: Timeout scraping {channel_url}[/yellow]")
         return []
