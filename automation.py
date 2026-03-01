@@ -202,32 +202,41 @@ def update_database():
 def select_random_topic(session, topics_config: dict, skip_topics: list | None = None) -> str | None:
     """
     Pick a random topic that has at least one video in the database.
-    Excludes 'general' from automated selection (too broad).
     Excludes any topics in skip_topics (e.g. ones that already failed today).
+    Falls back to 'general' if all specific topics are exhausted or skipped.
     """
-    skip = set(skip_topics or []) | {'general'}
+    skip = set(skip_topics or [])
 
-    candidates = []
+    specific_candidates = []
     for topic in topics_config:
-        if topic in skip:
+        if topic == 'general' or topic in skip:
             continue
         count = session.query(Video).filter(Video.topic == topic).count()
         if count > 0:
-            candidates.append(topic)
+            specific_candidates.append(topic)
 
-    if not candidates:
-        logging.error(
-            "No topics have videos. Run:  python update_db.py  to populate the database."
+    if specific_candidates:
+        chosen = random.choice(specific_candidates)
+        skipped_msg = f", skipped today: {sorted(skip)}" if skip else ""
+        logging.info(
+            f"Randomly selected topic '{chosen}' "
+            f"(pool: {len(specific_candidates)} specific topics{skipped_msg})"
         )
-        return None
+        return chosen
 
-    chosen = random.choice(candidates)
-    skipped_msg = f", skipped today: {sorted(skip - {'general'})}" if skip - {'general'} else ""
-    logging.info(
-        f"Randomly selected topic '{chosen}' "
-        f"(pool: {len(candidates)} topics with videos{skipped_msg})"
+    # All specific topics are exhausted or skipped — fall back to general
+    general_count = session.query(Video).filter(Video.topic == 'general').count()
+    if general_count > 0 and 'general' not in skip:
+        logging.info(
+            f"All specific topics exhausted/skipped — falling back to 'general' "
+            f"({general_count} videos available)"
+        )
+        return 'general'
+
+    logging.error(
+        "No topics have videos. Run:  python update_db.py  to populate the database."
     )
-    return chosen
+    return None
 
 
 # ── First-time setup ──────────────────────────────────────────────────────────
