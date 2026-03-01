@@ -43,6 +43,26 @@ def get_video_duration(video_path):
             return float(duration)
     except Exception:
         pass
+
+
+def is_valid_video(video_path):
+    """Quick ffprobe check that a file has valid video+audio streams and nonzero duration."""
+    try:
+        cmd = [
+            'ffprobe', '-v', 'quiet', '-print_format', 'json',
+            '-show_streams', '-show_format', str(video_path)
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, creationflags=_NO_WINDOW)
+        data = json.loads(result.stdout)
+
+        duration = float(data.get('format', {}).get('duration', 0))
+        if duration <= 0:
+            return False
+
+        stream_types = {s.get('codec_type') for s in data.get('streams', [])}
+        return 'video' in stream_types and 'audio' in stream_types
+    except Exception:
+        return False
     return 0.0
 
 
@@ -283,8 +303,11 @@ def download_videos_sequential(videos, download_path, use_oauth=True):
         for video in videos:
             try:
                 filepath = download_video(video, download_path, use_oauth=use_oauth)
-                if filepath:
+                if filepath and is_valid_video(filepath):
                     downloaded[video.id] = filepath
+                elif filepath:
+                    console.print(f"[yellow]  Discarding corrupt file: {video.title[:50]}[/yellow]")
+                    Path(filepath).unlink(missing_ok=True)
                 time.sleep(2)  # Gentle rate limiting between downloads
             except Exception as e:
                 console.print(f"[red]Error: {video.title[:40]}: {e}[/red]")
@@ -301,6 +324,10 @@ def download_videos_parallel(videos, download_path, max_workers=3, use_oauth=Tru
     def _download_one(video):
         try:
             filepath = download_video(video, download_path, use_oauth=use_oauth)
+            if filepath and not is_valid_video(filepath):
+                console.print(f"[yellow]  Discarding corrupt file: {video.title[:50]}[/yellow]")
+                Path(filepath).unlink(missing_ok=True)
+                return video.id, None
             return video.id, filepath
         except Exception as e:
             console.print(f"[red]Error: {video.title[:40]}: {e}[/red]")
