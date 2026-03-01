@@ -69,15 +69,19 @@ NETWORK_WAIT_SECONDS = 120    # Wait up to 2 min for network on startup
 # ── Logging ───────────────────────────────────────────────────────────────────
 
 def setup_logging():
+    from logging.handlers import RotatingFileHandler
     LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s [%(levelname)s] %(message)s',
-        handlers=[
-            logging.FileHandler(LOG_FILE, encoding='utf-8'),
-            logging.StreamHandler(sys.stdout),
-        ],
+    fmt = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
+
+    file_handler = RotatingFileHandler(
+        LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding='utf-8'
     )
+    file_handler.setFormatter(fmt)
+
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setFormatter(fmt)
+
+    logging.basicConfig(level=logging.INFO, handlers=[file_handler, stream_handler])
 
 
 # ── State helpers ─────────────────────────────────────────────────────────────
