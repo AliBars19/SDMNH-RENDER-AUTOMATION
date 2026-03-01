@@ -14,6 +14,10 @@ cooldown_days: 30
 # Maximum compilation duration in hours — videos are selected BEFORE download to stay under this
 max_compilation_hours: 12
 
+# How long (seconds) to wait for YouTube to finish processing before giving up on auto-delete
+# Large compilations can take several hours to process. Default: 4 hours (14400)
+youtube_processing_wait_seconds: 14400
+
 # Topics and their matching keywords (case-insensitive substring match on video title)
 # Add/remove topics here freely. "general" is the fallback for unmatched videos.
 topics:

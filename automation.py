@@ -450,12 +450,13 @@ def main():
 
     # ── Delete output file once YouTube confirms the video is public ──
     if video_id and service:
+        max_wait = int(cfg.get('youtube_processing_wait_seconds', 14400))
         deleted = wait_and_delete_when_public(
             service=service,
             video_id=video_id,
             video_path=output_file,
             poll_interval=60,
-            max_wait_seconds=7200,
+            max_wait_seconds=max_wait,
             log_fn=logging.info,
         )
         if not deleted:
