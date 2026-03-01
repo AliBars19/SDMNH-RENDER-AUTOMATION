@@ -106,14 +106,40 @@ def already_ran_today() -> bool:
     return data.get('video_id') is not None
 
 
+def get_todays_failed_topics() -> list:
+    """Return topics that already failed compilation today (should not be retried)."""
+    data = _load_json(LAST_RUN_FILE)
+    if data.get('date') != datetime.utcnow().date().isoformat():
+        return []
+    return data.get('failed_topics', [])
+
+
+def record_failed_topic(topic: str):
+    """Append topic to today's failed list so it won't be picked again today."""
+    today = datetime.utcnow().date().isoformat()
+    data = _load_json(LAST_RUN_FILE)
+    if data.get('date') != today:
+        data = {'date': today}
+    failed = data.get('failed_topics', [])
+    if topic not in failed:
+        failed.append(topic)
+    data['failed_topics'] = failed
+    _save_json(LAST_RUN_FILE, data)
+
+
 def record_run(topic: str, title: str, video_id: str | None, duration_seconds: float):
+    today = datetime.utcnow().date().isoformat()
+    # Preserve the failed_topics list accumulated across retries today
+    existing = _load_json(LAST_RUN_FILE)
+    failed_topics = existing.get('failed_topics', []) if existing.get('date') == today else []
     _save_json(LAST_RUN_FILE, {
-        'date': datetime.utcnow().date().isoformat(),
+        'date': today,
         'topic': topic,
         'title': title,
         'video_id': video_id,
         'duration_seconds': round(duration_seconds),
         'youtube_url': f'https://www.youtube.com/watch?v={video_id}' if video_id else None,
+        'failed_topics': failed_topics,
     })
 
 
@@ -169,14 +195,17 @@ def update_database():
 
 # ── Topic selection ───────────────────────────────────────────────────────────
 
-def select_random_topic(session, topics_config: dict) -> str | None:
+def select_random_topic(session, topics_config: dict, skip_topics: list | None = None) -> str | None:
     """
     Pick a random topic that has at least one video in the database.
     Excludes 'general' from automated selection (too broad).
+    Excludes any topics in skip_topics (e.g. ones that already failed today).
     """
+    skip = set(skip_topics or []) | {'general'}
+
     candidates = []
     for topic in topics_config:
-        if topic == 'general':
+        if topic in skip:
             continue
         count = session.query(Video).filter(Video.topic == topic).count()
         if count > 0:
@@ -189,9 +218,10 @@ def select_random_topic(session, topics_config: dict) -> str | None:
         return None
 
     chosen = random.choice(candidates)
+    skipped_msg = f", skipped today: {sorted(skip - {'general'})}" if skip - {'general'} else ""
     logging.info(
         f"Randomly selected topic '{chosen}' "
-        f"(pool: {len(candidates)} topics with videos)"
+        f"(pool: {len(candidates)} topics with videos{skipped_msg})"
     )
     return chosen
 
@@ -315,15 +345,21 @@ def main():
             return
         logging.info(f"Using manually specified topic: {topic}")
     else:
-        topic = select_random_topic(session, cfg['topics'])
+        failed_today = get_todays_failed_topics()
+        if failed_today:
+            logging.info(f"Skipping topics that failed earlier today: {failed_today}")
+        topic = select_random_topic(session, cfg['topics'], skip_topics=failed_today)
         if not topic:
             session.close()
             return
 
     session.close()
 
-    # ── Mark today as started (prevents re-runs on restart even if something fails) ──
-    _save_json(LAST_RUN_FILE, {'date': datetime.utcnow().date().isoformat(), 'status': 'in_progress'})
+    # ── Mark today as started, preserving any failed_topics from earlier attempts ──
+    today = datetime.utcnow().date().isoformat()
+    existing = _load_json(LAST_RUN_FILE)
+    failed_topics = existing.get('failed_topics', []) if existing.get('date') == today else []
+    _save_json(LAST_RUN_FILE, {'date': today, 'status': 'in_progress', 'failed_topics': failed_topics})
 
     # ── Compile ──
     max_hours = cfg.get('max_compilation_hours', 12)
@@ -337,6 +373,7 @@ def main():
         )
     except Exception as exc:
         logging.error(f"Compilation failed: {exc}")
+        record_failed_topic(topic)
         return
 
     hours = total_seconds / 3600
