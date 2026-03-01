@@ -1,3 +1,4 @@
+import logging
 import os
 import json
 import random
@@ -327,7 +328,6 @@ def compile_videos(video_files, topic, output_path, auto_mode=False):
         return output_filepath
 
     if result is not None and result.returncode != 0 and result.stderr:
-        import logging
         logging.warning(f"FFmpeg method 1 stderr: {result.stderr[:500]}")
 
     if output_filepath.exists():
@@ -360,7 +360,6 @@ def compile_videos(video_files, topic, output_path, auto_mode=False):
         return output_filepath
 
     if result.stderr:
-        import logging
         logging.warning(f"FFmpeg method 2 stderr: {result.stderr[:500]}")
 
     if output_filepath.exists():
@@ -403,7 +402,6 @@ def compile_videos(video_files, topic, output_path, auto_mode=False):
         console.print(f"[green]✓ Compilation successful (full re-encode)[/green]")
         return output_filepath
 
-    import logging
     console.print("[red]✗ All compilation methods failed[/red]")
     if result.stderr:
         logging.error(f"FFmpeg method 3 stderr: {result.stderr[:500]}")
