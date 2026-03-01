@@ -558,6 +558,22 @@ def run_auto(topic, max_hours=12, cfg=None):
 
     console.print(f"[green]✓ Selected {len(videos)} videos[/green]")
 
+    # ── Disk space pre-check ──
+    # Estimate: ~500 MB/hour of source video after 1080p normalization,
+    # plus the compiled output is roughly the same size.  Factor of 2.5 for safety.
+    import shutil
+    est_total_seconds = sum((v.duration or 3600) for v in videos)
+    est_gb_needed = (est_total_seconds / 3600) * 0.5 * 2.5
+    disk = shutil.disk_usage(cfg['download_path'])
+    free_gb = disk.free / (1024 ** 3)
+    if free_gb < est_gb_needed:
+        session.close()
+        raise Exception(
+            f"Not enough disk space: ~{est_gb_needed:.1f} GB needed, "
+            f"{free_gb:.1f} GB free. Free up space or reduce max_compilation_hours."
+        )
+    console.print(f"[dim]  Disk space OK: ~{est_gb_needed:.1f} GB needed, {free_gb:.1f} GB free[/dim]")
+
     # ── Download (parallel in auto mode) ──
     max_workers = cfg.get('max_concurrent_downloads', 3)
     video_files = download_videos_parallel(
