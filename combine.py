@@ -182,12 +182,18 @@ def download_video(video, download_path, use_oauth=True, retry_attempts=3):
                 video_stream.download(output_path=download_path, filename=f"temp_video_{video.youtube_id}.mp4")
                 audio_stream.download(output_path=download_path, filename=f"temp_audio_{video.youtube_id}.m4a")
 
+                # Normalize to 1080p/30fps/AAC so all downloads are uniform
+                # and stream-copy concat (Method 1) works reliably every time.
                 cmd = [
                     "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
                     "-i", str(video_file),
                     "-i", str(audio_file),
-                    "-c:v", "copy",
-                    "-c:a", "aac",
+                    "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,"
+                           "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black,fps=30",
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+                    "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+                    "-pix_fmt", "yuv420p",
+                    "-movflags", "+faststart",
                     str(output_file)
                 ]
                 subprocess.run(cmd, check=True, capture_output=True, creationflags=_NO_WINDOW)
@@ -195,7 +201,7 @@ def download_video(video, download_path, use_oauth=True, retry_attempts=3):
                 video_file.unlink()
                 audio_file.unlink()
 
-                console.print(f"[green]  ✓ Downloaded ({video_stream.resolution})[/green]")
+                console.print(f"[green]  ✓ Downloaded + normalized ({video_stream.resolution} → 1080p)[/green]")
                 return output_file
 
             # Fallback to progressive stream
@@ -210,15 +216,29 @@ def download_video(video, download_path, use_oauth=True, retry_attempts=3):
                 return None
 
             safe_title = sanitize_filename(yt.title)
-            filename = f"{safe_title}_{video.youtube_id}.mp4"
-            out = Path(download_path) / filename
+            raw_file = Path(download_path) / f"temp_prog_{video.youtube_id}.mp4"
+            output_file = Path(download_path) / f"{safe_title}_{video.youtube_id}.mp4"
 
             console.print(f"[dim]  Resolution: {stream.resolution}[/dim]")
-            stream.download(output_path=download_path, filename=filename)
+            stream.download(output_path=download_path, filename=f"temp_prog_{video.youtube_id}.mp4")
 
-            if out.exists():
-                console.print(f"[green]  ✓ Downloaded ({stream.resolution})[/green]")
-                return out
+            if raw_file.exists():
+                # Normalize progressive stream to 1080p/30fps too
+                cmd = [
+                    "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                    "-i", str(raw_file),
+                    "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,"
+                           "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black,fps=30",
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+                    "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+                    "-pix_fmt", "yuv420p",
+                    "-movflags", "+faststart",
+                    str(output_file)
+                ]
+                subprocess.run(cmd, check=True, capture_output=True, creationflags=_NO_WINDOW)
+                raw_file.unlink()
+                console.print(f"[green]  ✓ Downloaded + normalized ({stream.resolution} → 1080p)[/green]")
+                return output_file
             else:
                 raise Exception("Download file not found after write")
 
