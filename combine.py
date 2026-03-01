@@ -4,6 +4,7 @@ import json
 import random
 import yaml
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -293,6 +294,41 @@ def download_videos_sequential(videos, download_path, use_oauth=True):
     return downloaded
 
 
+def download_videos_parallel(videos, download_path, max_workers=3, use_oauth=True):
+    """Download videos using a thread pool for parallel downloads."""
+    downloaded = {}
+
+    def _download_one(video):
+        try:
+            filepath = download_video(video, download_path, use_oauth=use_oauth)
+            return video.id, filepath
+        except Exception as e:
+            console.print(f"[red]Error: {video.title[:40]}: {e}[/red]")
+            return video.id, None
+
+    with Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TimeRemainingColumn(),
+        console=console
+    ) as progress:
+        task = progress.add_task(
+            f"[cyan]Downloading videos ({max_workers} parallel)...",
+            total=len(videos),
+        )
+
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {pool.submit(_download_one, v): v for v in videos}
+            for future in as_completed(futures):
+                vid_id, filepath = future.result()
+                if filepath:
+                    downloaded[vid_id] = filepath
+                progress.update(task, advance=1)
+
+    return downloaded
+
+
 def compile_videos(video_files, topic, output_path, auto_mode=False):
     """
     Compile downloaded videos into a single MP4 using FFmpeg.
@@ -477,8 +513,11 @@ def run_auto(topic, max_hours=12, cfg=None):
 
     console.print(f"[green]✓ Selected {len(videos)} videos[/green]")
 
-    # ── Download ──
-    video_files = download_videos_sequential(videos, cfg['download_path'], use_oauth=True)
+    # ── Download (parallel in auto mode) ──
+    max_workers = cfg.get('max_concurrent_downloads', 3)
+    video_files = download_videos_parallel(
+        videos, cfg['download_path'], max_workers=max_workers, use_oauth=True,
+    )
 
     if not video_files:
         session.close()
