@@ -24,11 +24,14 @@ youtube_processing_wait_seconds: 14400
 # Topics and their matching keywords (case-insensitive substring match on video title)
 # Add/remove topics here freely. "general" is the fallback for unmatched videos.
 topics:
+  # ── Specific show/game formats (matched first to avoid being swallowed by broader topics) ──
   among_us:
     - "among us"
   try_not_to_laugh:
     - "try not to laugh"
     - "tntl"
+    - "funniest moments"
+    - "funniest sidemen"
   the_price_is_right:
     - "the price is right"
     - "price is right"
@@ -52,6 +55,8 @@ topics:
   guessmoji:
     - "guessmoji"
     - "guess emoji"
+  geoguessr:
+    - "geoguessr"
   sidemen_sunday:
     - "sidemen sunday"
   holiday:
@@ -69,14 +74,30 @@ topics:
     - "tinder"
     - "speed dating"
     - "sidemen dating"
+    - "blind date"
+    - "blind dating"
   football:
     - "football"
     - "vs academy"
     - "vs pro"
+    - "freekick"
+    - "free kick"
+    - "penalty"
+    - "allstars"
+    - "all stars"
+    - "sidemen fc"
+    - "charity match"
   quiz:
     - "quiz"
     - "trivia"
     - "knowledge"
+    - "jeopardy"
+    - "pointless"
+    - "categories"
+    - "how well do"
+    - "smarter than"
+    - "google feud"
+    - "family feud"
   charity:
     - "charity"
   would_you_rather:
@@ -89,10 +110,64 @@ topics:
     - "clothes"
   ultimate:
     - "ultimate"
+    - "extreme"
   tasting:
     - "tasting"
     - "taste test"
     - "blind taste"
+
+  # ── New topics (ordered specific → broad so narrow matches win) ──
+  golf:
+    - "golf"
+    - "minigolf"
+    - "mini golf"
+  drawing:
+    - "drawing"
+    - "pictionary"
+    - "skribbl"
+  party_games:
+    - "quiplash"
+    - "codenames"
+    - "liars bar"
+    - "jackbox"
+    - "gartic"
+    - "trivial pursuit"
+    - "charades"
+    - "fear pong"
+  react:
+    - "react to"
+    - "reacting to"
+    - "reaction"
+  ranking:
+    - " rank"
+    - "tier list"
+    - "most likely"
+    - "paranoia"
+  gaming:
+    - "gta"
+    - "fifa"
+    - "pro clubs"
+    - "rocket league"
+    - "warzone"
+    - "fall guys"
+    - "fortnite"
+    - "minecraft"
+    - "shellshock"
+    - "call of duty"
+    - "pubg"
+    - "roblox"
+  sports:
+    - "boxing"
+    - "olympics"
+    - "trickshot"
+    - "trick shot"
+    - "cricket"
+    - "basketball"
+    - "relay"
+    - "wipeout"
+    - "darts"
+    - "bowling"
+
   general: []
 
 # Download settings

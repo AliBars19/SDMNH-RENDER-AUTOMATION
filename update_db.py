@@ -148,11 +148,26 @@ def main():
         new_count += 1
     
     session.commit()
-    session.close()
-    
+
+    # ── Re-classify "general" videos against current keywords ──
+    general_videos = session.query(Video).filter(Video.topic == 'general').all()
+    reassigned = 0
+    for video in general_videos:
+        new_topic = assign_topic(video.title, cfg['topics'])
+        if new_topic != 'general':
+            video.topic = new_topic
+            reassigned += 1
+    if reassigned:
+        session.commit()
+
     total = session.query(Video).count()
+    general_left = session.query(Video).filter(Video.topic == 'general').count()
+    session.close()
+
     console.print(f"\n[green] Added {new_count} new videos[/green]")
-    console.print(f"[green] Total videos in database: {total}[/green]\n")
+    if reassigned:
+        console.print(f"[green] Re-classified {reassigned} videos from 'general' to specific topics[/green]")
+    console.print(f"[green] Total: {total} videos ({general_left} still in general)[/green]\n")
 
 
 if __name__ == "__main__":

@@ -50,6 +50,7 @@ TOPIC_DISPLAY_NAMES = {
     'guess_the_link':       'GUESS THE LINK',
     'guess_the_lyric':      'GUESS THE LYRIC',
     'guessmoji':            'GUESSMOJI',
+    'geoguessr':            'GEOGUESSR',
     'sidemen_sunday':       'SIDEMEN SUNDAY',
     'holiday':              'HOLIDAY',
     'road_trip':            'ROAD TRIP',
@@ -62,6 +63,13 @@ TOPIC_DISPLAY_NAMES = {
     'fashion':              'FASHION',
     'ultimate':             'ULTIMATE',
     'tasting':              'TASTING',
+    'golf':                 'GOLF',
+    'drawing':              'DRAWING',
+    'party_games':          'PARTY GAMES',
+    'react':                'REACTIONS',
+    'ranking':              'RANKING',
+    'gaming':               'GAMING',
+    'sports':               'SPORTS',
     'general':              'COMPILATION',
 }
 
@@ -89,6 +97,14 @@ TOPIC_TAGS = {
     'fashion':              ['fashion', 'clothing', 'outfit'],
     'ultimate':             ['ultimate', 'extreme'],
     'tasting':              ['tasting', 'taste test', 'food'],
+    'geoguessr':            ['geoguessr', 'geography', 'guessing game'],
+    'golf':                 ['golf', 'mini golf', 'sidemen golf'],
+    'drawing':              ['drawing', 'pictionary', 'art challenge'],
+    'party_games':          ['party games', 'quiplash', 'jackbox', 'gartic phone'],
+    'react':                ['reaction', 'react', 'commentary'],
+    'ranking':              ['ranking', 'tier list', 'sidemen rank'],
+    'gaming':               ['gaming', 'gta', 'fifa', 'fortnite', 'minecraft'],
+    'sports':               ['sports', 'boxing', 'olympics', 'athletics'],
 }
 
 
