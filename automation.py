@@ -179,6 +179,25 @@ def wait_for_network(max_seconds: int = NETWORK_WAIT_SECONDS) -> bool:
     return False
 
 
+def is_ethernet_connected() -> bool:
+    """Return True if a physical Ethernet adapter (802.3) is currently Up."""
+    try:
+        result = subprocess.run(
+            [
+                'powershell', '-WindowStyle', 'Hidden', '-NonInteractive', '-Command',
+                'Get-NetAdapter -Physical '
+                '| Where-Object Status -eq Up '
+                '| Where-Object MediaType -eq 802.3 '
+                '| Select-Object -First 1 -ExpandProperty Name',
+            ],
+            capture_output=True, text=True, timeout=15, creationflags=_NO_WINDOW,
+        )
+        return bool(result.stdout.strip())
+    except Exception:
+        # If the check itself fails, don't block the run
+        return True
+
+
 # ── Database update ───────────────────────────────────────────────────────────
 
 def update_database():
@@ -330,6 +349,13 @@ def main():
         logging.error("No network available — cannot proceed. Will retry on next startup.")
         return
     logging.info("Network connection established.")
+
+    # ── Ethernet-only guard ──
+    if cfg.get('require_ethernet', False) and not args.force:
+        if not is_ethernet_connected():
+            logging.info("Not connected via Ethernet — skipping. Will retry on next startup.")
+            return
+        logging.info("Ethernet connection confirmed.")
 
     # ── Refresh database if stale ──
     if db_needs_update():

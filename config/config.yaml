@@ -2,6 +2,9 @@ channels:
   - "https://www.youtube.com/@MoreSidemen"
   - "https://www.youtube.com/@Sidemen"
 
+# Only run when connected via Ethernet (skip on WiFi-only connections)
+require_ethernet: true
+
 download_path: "data/downloads"
 output_path: "data/outputs"
 db_path: "data/videos.db"
