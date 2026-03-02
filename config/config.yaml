@@ -116,6 +116,36 @@ topics:
     - "taste test"
     - "blind taste"
 
+  # ── Specific formats ──
+  20_vs_1:
+    - "20 women vs"
+    - "20 vs 1"
+    - "20 men vs"
+  think_the_same:
+    - "think the same"
+  crossbar:
+    - "crossbar"
+  podcast:
+    - "podcast"
+
+  # ── Medium specificity ──
+  survival:
+    - "survive"
+    - "24 hours"
+    - "overnight"
+    - "abandoned"
+  mystery:
+    - "mystery box"
+    - "mystery"
+
+  # ── Broad but distinct patterns ──
+  money:
+    - "$10,000"
+    - "$100,000"
+    - "$1,000"
+    - "vs $"
+    - "$1 vs"
+
   # ── New topics (ordered specific → broad so narrow matches win) ──
   golf:
     - "golf"
@@ -143,6 +173,11 @@ topics:
     - "tier list"
     - "most likely"
     - "paranoia"
+  guessing:
+    - "guess the"
+  rating:
+    - "brutally rate"
+    - "rate the"
   gaming:
     - "gta"
     - "fifa"
