@@ -9,15 +9,49 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 _NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+
+# ── Suppress Node.js console windows from pytubefix ──────────────────────────
+# pytubefix spawns node.exe via subprocess.Popen / check_output for signature
+# decryption and bot-guard but never passes CREATE_NO_WINDOW.  Monkey-patch
+# before importing pytubefix so every child process is hidden on Windows.
+if _NO_WINDOW:
+    _real_Popen = subprocess.Popen
+    _real_check_output = subprocess.check_output
+
+    class _SilentPopen(_real_Popen):
+        def __init__(self, *args, **kwargs):
+            kwargs.setdefault('creationflags', _NO_WINDOW)
+            super().__init__(*args, **kwargs)
+
+    def _silent_check_output(*args, **kwargs):
+        kwargs.setdefault('creationflags', _NO_WINDOW)
+        return _real_check_output(*args, **kwargs)
+
+    subprocess.Popen = _SilentPopen
+    subprocess.check_output = _silent_check_output
+
 from rich.console import Console
 from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn
 from pytubefix import YouTube
 from pytubefix.cli import on_progress
 import time
 
+from collections import OrderedDict
+
 from src.database import Database, Video, Compilation, compilation_videos
 
 console = Console()
+
+
+def _sort_by_upload_date(video_files, videos):
+    """Return video_files ordered newest-first using upload_date from the DB rows."""
+    date_lookup = {v.id: v.upload_date for v in videos}
+    sorted_ids = sorted(
+        video_files.keys(),
+        key=lambda vid: date_lookup.get(vid) or datetime.min,
+        reverse=True,
+    )
+    return OrderedDict((vid, video_files[vid]) for vid in sorted_ids)
 
 
 def load_config(config_path="config/config.yaml"):
@@ -43,6 +77,7 @@ def get_video_duration(video_path):
             return float(duration)
     except Exception:
         pass
+    return 0.0
 
 
 def is_valid_video(video_path):
@@ -63,7 +98,6 @@ def is_valid_video(video_path):
         return 'video' in stream_types and 'audio' in stream_types
     except Exception:
         return False
-    return 0.0
 
 
 def _get_cooldown_video_ids(session, cooldown_days):
@@ -212,6 +246,7 @@ def download_video(video, download_path, use_oauth=True, retry_attempts=3):
                     "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,"
                            "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black,fps=30",
                     "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+                    "-threads", "4",
                     "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
                     "-pix_fmt", "yuv420p",
                     "-movflags", "+faststart",
@@ -251,6 +286,7 @@ def download_video(video, download_path, use_oauth=True, retry_attempts=3):
                     "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,"
                            "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black,fps=30",
                     "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+                    "-threads", "4",
                     "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
                     "-pix_fmt", "yuv420p",
                     "-movflags", "+faststart",
@@ -375,7 +411,7 @@ def compile_videos(video_files, topic, output_path, auto_mode=False):
         path_str = str(filepath.absolute()).replace('\\', '/')
         content.append(f"file '{path_str}'")
 
-    with open(concat_file, 'w', encoding='ascii') as f:
+    with open(concat_file, 'w', encoding='utf-8') as f:
         f.write('\n'.join(content))
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -432,6 +468,7 @@ def compile_videos(video_files, topic, output_path, auto_mode=False):
         "-vsync", "cfr",
         "-r", "30",
         "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-threads", "4",
         "-c:a", "copy",
         "-movflags", "+faststart",
         str(output_filepath)
@@ -474,6 +511,7 @@ def compile_videos(video_files, topic, output_path, auto_mode=False):
             "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black,fps=30"
         ),
         "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+        "-threads", "4",
         "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
         "-movflags", "+faststart",
         "-pix_fmt", "yuv420p",
@@ -586,6 +624,9 @@ def run_auto(topic, max_hours=12, cfg=None):
 
     console.print(f"[green]Downloaded {len(video_files)}/{len(videos)} videos[/green]")
 
+    # ── Sort newest-first so the compilation opens with recent content ──
+    video_files = _sort_by_upload_date(video_files, videos)
+
     # ── Compile (auto mode — no interactive prompts) ──
     output_file = compile_videos(video_files, topic, cfg['output_path'], auto_mode=True)
 
@@ -691,6 +732,9 @@ def main():
         exit(1)
 
     console.print(f"\n[green]✓ Downloaded {len(video_files)}/{len(videos)} videos[/green]")
+
+    # ── Sort newest-first so the compilation opens with recent content ──
+    video_files = _sort_by_upload_date(video_files, videos)
 
     output_file = compile_videos(video_files, topic, cfg['output_path'])
 
