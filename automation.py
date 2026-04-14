@@ -101,7 +101,7 @@ def _save_json(path: Path, data: dict):
 
 def _today_utc() -> str:
     """Return today's UTC date as an ISO string (YYYY-MM-DD)."""
-    return _today_utc()
+    return datetime.now(timezone.utc).date().isoformat()
 
 
 def already_ran_today() -> bool:
