@@ -99,9 +99,14 @@ def _save_json(path: Path, data: dict):
         json.dump(data, f, indent=2)
 
 
+def _today_utc() -> str:
+    """Return today's UTC date as an ISO string (YYYY-MM-DD)."""
+    return _today_utc()
+
+
 def already_ran_today() -> bool:
     data = _load_json(LAST_RUN_FILE)
-    if data.get('date') != datetime.now(timezone.utc).date().isoformat():
+    if data.get('date') != _today_utc():
         return False
     # Allow a retry if today's run never produced a successful upload
     return data.get('video_id') is not None
@@ -110,14 +115,14 @@ def already_ran_today() -> bool:
 def get_todays_failed_topics() -> list:
     """Return topics that already failed compilation today (should not be retried)."""
     data = _load_json(LAST_RUN_FILE)
-    if data.get('date') != datetime.now(timezone.utc).date().isoformat():
+    if data.get('date') != _today_utc():
         return []
     return data.get('failed_topics', [])
 
 
 def record_failed_topic(topic: str):
     """Append topic to today's failed list so it won't be picked again today."""
-    today = datetime.now(timezone.utc).date().isoformat()
+    today = _today_utc()
     data = _load_json(LAST_RUN_FILE)
     if data.get('date') != today:
         data = {'date': today}
@@ -129,7 +134,7 @@ def record_failed_topic(topic: str):
 
 
 def record_run(topic: str, title: str, video_id: str | None, duration_seconds: float):
-    today = datetime.now(timezone.utc).date().isoformat()
+    today = _today_utc()
     # Preserve the failed_topics list accumulated across retries today
     existing = _load_json(LAST_RUN_FILE)
     failed_topics = existing.get('failed_topics', []) if existing.get('date') == today else []
@@ -365,7 +370,7 @@ def main():
     session.close()
 
     # ── Mark today as started, preserving any failed_topics from earlier attempts ──
-    today = datetime.now(timezone.utc).date().isoformat()
+    today = _today_utc()
     existing = _load_json(LAST_RUN_FILE)
     failed_topics = existing.get('failed_topics', []) if existing.get('date') == today else []
     _save_json(LAST_RUN_FILE, {'date': today, 'status': 'in_progress', 'failed_topics': failed_topics})

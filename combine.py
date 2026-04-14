@@ -392,7 +392,7 @@ def compile_videos(video_files, topic, output_path, auto_mode=False):
     with open(concat_file, 'w', encoding='utf-8') as f:
         f.write('\n'.join(content))
 
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_filename = f"{topic}_compilation_{timestamp}.mp4"
     output_filepath = Path(output_path) / output_filename
 
