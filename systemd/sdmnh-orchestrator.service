@@ -1,0 +1,13 @@
+[Unit]
+Description=SDMNH Daily Render Orchestrator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/sdmnh/scripts/orchestrate.sh
+WorkingDirectory=/opt/sdmnh
+EnvironmentFile=/opt/sdmnh/.env
+TimeoutStartSec=21600
+StandardOutput=append:/opt/sdmnh/data/orchestrator.log
+StandardError=append:/opt/sdmnh/data/orchestrator.log
