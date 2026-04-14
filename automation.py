@@ -88,8 +88,8 @@ def _load_json(path: Path) -> dict:
         try:
             with open(path) as f:
                 return json.load(f)
-        except Exception:
-            pass
+        except (json.JSONDecodeError, OSError) as exc:
+            logging.warning("Failed to read %s: %s", path, exc)
     return {}
 
 
@@ -297,6 +297,10 @@ def main():
         '--update-db', action='store_true',
         help='Force a database refresh and exit',
     )
+    parser.add_argument(
+        '--ephemeral', action='store_true',
+        help='Ephemeral mode: skip network wait and YouTube processing wait',
+    )
     args = parser.parse_args()
 
     os.chdir(BASE_DIR)
@@ -325,12 +329,13 @@ def main():
         )
         return
 
-    # ── Wait for network ──
-    logging.info(f"Waiting for network (up to {NETWORK_WAIT_SECONDS}s)...")
-    if not wait_for_network():
-        logging.error("No network available — cannot proceed. Will retry on next startup.")
-        return
-    logging.info("Network connection established.")
+    # ── Wait for network (skip on ephemeral — DO droplets always have network) ──
+    if not args.ephemeral:
+        logging.info(f"Waiting for network (up to {NETWORK_WAIT_SECONDS}s)...")
+        if not wait_for_network():
+            logging.error("No network available — cannot proceed. Will retry on next startup.")
+            return
+        logging.info("Network connection established.")
 
     # ── Refresh database if stale ──
     if db_needs_update():
@@ -344,7 +349,7 @@ def main():
         return
 
     # ── Run pipeline ──
-    run_pipeline(cfg, topic)
+    run_pipeline(cfg, topic, ephemeral=args.ephemeral)
 
 
 def resolve_topic(cfg: dict, args) -> str | None:
@@ -371,7 +376,7 @@ def resolve_topic(cfg: dict, args) -> str | None:
         return select_random_topic(session, cfg['topics'], skip_topics=failed_today)
 
 
-def run_pipeline(cfg: dict, topic: str):
+def run_pipeline(cfg: dict, topic: str, ephemeral: bool = False):
     """Compile videos, upload to YouTube, and clean up."""
     # Mark today as started
     today = _today_utc()
@@ -450,7 +455,10 @@ def run_pipeline(cfg: dict, topic: str):
     record_run(topic, title, video_id, total_seconds)
 
     # ── Delete output file once YouTube confirms the video is public ──
-    if video_id and service:
+    # In ephemeral mode, droplet destruction handles cleanup — skip the wait.
+    if ephemeral:
+        logging.info("Ephemeral mode — skipping YouTube processing wait (droplet cleanup handles files).")
+    elif video_id and service:
         max_wait = int(cfg.get('youtube_processing_wait_seconds', 14400))
         deleted = wait_and_delete_when_public(
             service=service, video_id=video_id, video_path=output_file,
