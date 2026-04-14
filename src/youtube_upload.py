@@ -132,7 +132,8 @@ def authenticate(credentials_path: str, token_path: str):
     """
     Authenticate with the YouTube Data API using OAuth 2.0.
 
-    On first call a browser window opens for user consent.
+    On first call a browser window opens for user consent (or binds to
+    0.0.0.0:8080 when SDMNH_HEADLESS is set, for SSH tunnel auth).
     Subsequent calls reuse the cached token from token_path.
 
     Returns a googleapiclient Resource object ready to make API calls.
@@ -153,7 +154,12 @@ def authenticate(credentials_path: str, token_path: str):
                     "and run:  python automation.py --setup"
                 )
             flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
-            creds = flow.run_local_server(port=0)
+            if os.environ.get("SDMNH_HEADLESS"):
+                # Headless server: bind to all interfaces so an SSH tunnel can reach it
+                # ssh -L 8080:localhost:8080 root@<server>
+                creds = flow.run_local_server(bind_addr="0.0.0.0", port=8080)
+            else:
+                creds = flow.run_local_server(port=0)
 
         # Persist token so next run doesn't need a browser
         Path(token_path).parent.mkdir(parents=True, exist_ok=True)
