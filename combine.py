@@ -10,8 +10,6 @@ from pathlib import Path
 
 from rich.console import Console
 from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn
-from pytubefix import YouTube
-from pytubefix.cli import on_progress
 import time
 
 from collections import OrderedDict
@@ -174,123 +172,70 @@ def sanitize_filename(filename):
     return filename[:200]
 
 
-def download_video(video, download_path, use_oauth=True, retry_attempts=3):
-    """Download video using pytubefix with OAuth — highest quality adaptive streams."""
+def download_video(video, download_path, yt_dlp_format=None, retry_attempts=3):
+    """Download video using yt-dlp, then normalize to 1080p/30fps/AAC with FFmpeg."""
+    dl = Path(download_path)
+
     # Check if already downloaded (cache by youtube_id in filename)
-    for file in Path(download_path).glob("*.mp4"):
+    for file in dl.glob("*.mp4"):
         if video.youtube_id in file.name:
             console.print(f"[dim]✓ Cached: {video.title[:60]}[/dim]")
             return file
 
     console.print(f"[cyan]Downloading: {video.title[:60]}[/cyan]")
 
+    safe_title = sanitize_filename(video.title)
+    raw_file = dl / f"temp_raw_{video.youtube_id}.mp4"
+    output_file = dl / f"{safe_title}_{video.youtube_id}.mp4"
+    fmt = yt_dlp_format or "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+
     for attempt in range(retry_attempts):
         try:
-            yt = YouTube(
+            # Download with yt-dlp
+            dl_cmd = [
+                "yt-dlp",
+                "-f", fmt,
+                "--merge-output-format", "mp4",
+                "-o", str(raw_file),
+                "--no-warnings",
+                "--no-progress",
                 video.url,
-                use_oauth=use_oauth,
-                allow_oauth_cache=True
-            )
+            ]
+            subprocess.run(dl_cmd, check=True, capture_output=True, timeout=600)
 
-            # Try adaptive streams first (best quality)
-            video_stream = yt.streams.filter(
-                adaptive=True,
-                file_extension='mp4',
-                only_video=True
-            ).order_by('resolution').desc().first()
+            if not raw_file.exists():
+                raise FileNotFoundError(f"yt-dlp did not produce output file for {video.youtube_id}")
 
-            audio_stream = yt.streams.filter(
-                adaptive=True,
-                only_audio=True
-            ).order_by('abr').desc().first()
+            # Normalize to 1080p/30fps/AAC so stream-copy concat works reliably
+            norm_cmd = [
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                "-i", str(raw_file),
+                "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,"
+                       "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black,fps=30",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+                "-threads", "4",
+                "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+                "-pix_fmt", "yuv420p",
+                "-movflags", "+faststart",
+                str(output_file),
+            ]
+            subprocess.run(norm_cmd, check=True, capture_output=True)
+            raw_file.unlink(missing_ok=True)
 
-            if video_stream and audio_stream:
-                console.print(f"[dim]  Quality: {video_stream.resolution}[/dim]")
-
-                safe_title = sanitize_filename(yt.title)
-                video_file = Path(download_path) / f"temp_video_{video.youtube_id}.mp4"
-                audio_file = Path(download_path) / f"temp_audio_{video.youtube_id}.m4a"
-                output_file = Path(download_path) / f"{safe_title}_{video.youtube_id}.mp4"
-
-                video_stream.download(output_path=download_path, filename=f"temp_video_{video.youtube_id}.mp4")
-                audio_stream.download(output_path=download_path, filename=f"temp_audio_{video.youtube_id}.m4a")
-
-                # Normalize to 1080p/30fps/AAC so all downloads are uniform
-                # and stream-copy concat (Method 1) works reliably every time.
-                cmd = [
-                    "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-                    "-i", str(video_file),
-                    "-i", str(audio_file),
-                    "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,"
-                           "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black,fps=30",
-                    "-c:v", "libx264", "-preset", "fast", "-crf", "22",
-                    "-threads", "4",
-                    "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
-                    "-pix_fmt", "yuv420p",
-                    "-movflags", "+faststart",
-                    str(output_file)
-                ]
-                subprocess.run(cmd, check=True, capture_output=True)
-
-                video_file.unlink()
-                audio_file.unlink()
-
-                console.print(f"[green]  ✓ Downloaded + normalized ({video_stream.resolution} → 1080p)[/green]")
-                return output_file
-
-            # Fallback to progressive stream
-            console.print(f"[yellow]  No adaptive streams, using progressive[/yellow]")
-            stream = yt.streams.filter(
-                progressive=True,
-                file_extension='mp4'
-            ).order_by('resolution').desc().first()
-
-            if not stream:
-                console.print(f"[red]  No streams available[/red]")
-                return None
-
-            safe_title = sanitize_filename(yt.title)
-            raw_file = Path(download_path) / f"temp_prog_{video.youtube_id}.mp4"
-            output_file = Path(download_path) / f"{safe_title}_{video.youtube_id}.mp4"
-
-            console.print(f"[dim]  Resolution: {stream.resolution}[/dim]")
-            stream.download(output_path=download_path, filename=f"temp_prog_{video.youtube_id}.mp4")
-
-            if raw_file.exists():
-                # Normalize progressive stream to 1080p/30fps too
-                cmd = [
-                    "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-                    "-i", str(raw_file),
-                    "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,"
-                           "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black,fps=30",
-                    "-c:v", "libx264", "-preset", "fast", "-crf", "22",
-                    "-threads", "4",
-                    "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
-                    "-pix_fmt", "yuv420p",
-                    "-movflags", "+faststart",
-                    str(output_file)
-                ]
-                subprocess.run(cmd, check=True, capture_output=True)
-                raw_file.unlink()
-                console.print(f"[green]  ✓ Downloaded + normalized ({stream.resolution} → 1080p)[/green]")
-                return output_file
-            else:
-                raise Exception("Download file not found after write")
+            console.print(f"[green]  ✓ Downloaded + normalized → 1080p[/green]")
+            return output_file
 
         except Exception as e:
+            raw_file.unlink(missing_ok=True)
+            output_file.unlink(missing_ok=True)
             error_msg = str(e).lower()
 
-            if "bot" in error_msg:
-                if attempt == 0 and not use_oauth:
-                    console.print(f"[yellow]  Bot detected, retrying with OAuth...[/yellow]")
-                    return download_video(video, download_path, use_oauth=True, retry_attempts=retry_attempts - 1)
-                console.print(f"[yellow]  Bot detection with login — waiting 30s...[/yellow]")
-                time.sleep(30)
-            elif "400" in error_msg:
-                time.sleep(5)
-            elif "429" in error_msg:
+            if "429" in error_msg or "too many" in error_msg:
                 console.print(f"[yellow]  Rate limited — waiting 20s...[/yellow]")
                 time.sleep(20)
+            elif "403" in error_msg:
+                console.print(f"[yellow]  Forbidden — waiting 10s...[/yellow]")
+                time.sleep(10)
 
             if attempt < retry_attempts - 1:
                 console.print(f"[yellow]  Retry {attempt + 2}/{retry_attempts}...[/yellow]")
@@ -302,7 +247,7 @@ def download_video(video, download_path, use_oauth=True, retry_attempts=3):
     return None
 
 
-def download_videos_sequential(videos, download_path, use_oauth=True):
+def download_videos_sequential(videos, download_path):
     downloaded = {}
 
     with Progress(
@@ -316,7 +261,7 @@ def download_videos_sequential(videos, download_path, use_oauth=True):
 
         for video in videos:
             try:
-                filepath = download_video(video, download_path, use_oauth=use_oauth)
+                filepath = download_video(video, download_path)
                 if filepath and is_valid_video(filepath):
                     downloaded[video.id] = filepath
                 elif filepath:
@@ -331,13 +276,13 @@ def download_videos_sequential(videos, download_path, use_oauth=True):
     return downloaded
 
 
-def download_videos_parallel(videos, download_path, max_workers=3, use_oauth=True):
+def download_videos_parallel(videos, download_path, max_workers=3):
     """Download videos using a thread pool for parallel downloads."""
     downloaded = {}
 
     def _download_one(video):
         try:
-            filepath = download_video(video, download_path, use_oauth=use_oauth)
+            filepath = download_video(video, download_path)
             if filepath and not is_valid_video(filepath):
                 console.print(f"[yellow]  Discarding corrupt file: {video.title[:50]}[/yellow]")
                 Path(filepath).unlink(missing_ok=True)
@@ -593,7 +538,7 @@ def run_auto(topic, max_hours=12, cfg=None):
     # ── Download (parallel in auto mode) ──
     max_workers = cfg.get('max_concurrent_downloads', 3)
     video_files = download_videos_parallel(
-        videos, cfg['download_path'], max_workers=max_workers, use_oauth=True,
+        videos, cfg['download_path'], max_workers=max_workers,
     )
 
     if not video_files:
@@ -660,15 +605,6 @@ def run_auto(topic, max_hours=12, cfg=None):
 def main():
     console.print("\n[bold cyan]🎬 SDMNH Video Compilation[/bold cyan]\n")
 
-    console.print("[yellow]This script uses OAuth to log in to YouTube for downloading.[/yellow]")
-    use_oauth_input = input("\nUse OAuth login? (Y/n): ").strip().lower()
-    use_oauth = use_oauth_input != 'n'
-
-    if use_oauth:
-        console.print("[green]✓ Will use OAuth (login via browser)[/green]\n")
-    else:
-        console.print("[yellow]⚠ Will try without login (may fail)[/yellow]\n")
-
     cfg = load_config()
     db = Database(cfg['db_path'])
     session = db.get_session()
@@ -703,7 +639,7 @@ def main():
 
     console.print(f"[green]✓ Selected {len(videos)} videos[/green]\n")
 
-    video_files = download_videos_sequential(videos, cfg['download_path'], use_oauth=use_oauth)
+    video_files = download_videos_sequential(videos, cfg['download_path'])
 
     if not video_files:
         console.print("[red]No videos downloaded[/red]")

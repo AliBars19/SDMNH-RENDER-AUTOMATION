@@ -20,7 +20,7 @@ def load_config(config_path="config/config.yaml"):
         cfg = yaml.safe_load(f)
     
     # Validate required keys
-    required = ['channels', 'download_path', 'output_path', 'db_path', 'topics', 'yt_dlp_format']
+    required = ['channels', 'download_path', 'output_path', 'db_path', 'topics']
     missing = [k for k in required if k not in cfg]
     if missing:
         console.print(f"[red]Error: Missing config keys: {missing}[/red]")
