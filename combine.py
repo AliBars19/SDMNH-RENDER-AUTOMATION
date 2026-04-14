@@ -5,30 +5,8 @@ import random
 import yaml
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-
-_NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-
-# ── Suppress Node.js console windows from pytubefix ──────────────────────────
-# pytubefix spawns node.exe via subprocess.Popen / check_output for signature
-# decryption and bot-guard but never passes CREATE_NO_WINDOW.  Monkey-patch
-# before importing pytubefix so every child process is hidden on Windows.
-if _NO_WINDOW:
-    _real_Popen = subprocess.Popen
-    _real_check_output = subprocess.check_output
-
-    class _SilentPopen(_real_Popen):
-        def __init__(self, *args, **kwargs):
-            kwargs.setdefault('creationflags', _NO_WINDOW)
-            super().__init__(*args, **kwargs)
-
-    def _silent_check_output(*args, **kwargs):
-        kwargs.setdefault('creationflags', _NO_WINDOW)
-        return _real_check_output(*args, **kwargs)
-
-    subprocess.Popen = _SilentPopen
-    subprocess.check_output = _silent_check_output
 
 from rich.console import Console
 from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn
@@ -70,7 +48,7 @@ def get_video_duration(video_path):
             'ffprobe', '-v', 'quiet', '-print_format', 'json',
             '-show_format', str(video_path)
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, creationflags=_NO_WINDOW)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         data = json.loads(result.stdout)
         duration = data.get('format', {}).get('duration')
         if duration:
@@ -87,7 +65,7 @@ def is_valid_video(video_path):
             'ffprobe', '-v', 'quiet', '-print_format', 'json',
             '-show_streams', '-show_format', str(video_path)
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, creationflags=_NO_WINDOW)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         data = json.loads(result.stdout)
 
         duration = float(data.get('format', {}).get('duration', 0))
@@ -102,7 +80,7 @@ def is_valid_video(video_path):
 
 def _get_cooldown_video_ids(session, cooldown_days):
     """Return a set of video IDs used in compilations within the cooldown window (single query)."""
-    cooldown_date = datetime.utcnow() - timedelta(days=cooldown_days)
+    cooldown_date = datetime.now(timezone.utc) - timedelta(days=cooldown_days)
     rows = (
         session.query(compilation_videos.c.video_id)
         .join(Compilation)
@@ -252,7 +230,7 @@ def download_video(video, download_path, use_oauth=True, retry_attempts=3):
                     "-movflags", "+faststart",
                     str(output_file)
                 ]
-                subprocess.run(cmd, check=True, capture_output=True, creationflags=_NO_WINDOW)
+                subprocess.run(cmd, check=True, capture_output=True)
 
                 video_file.unlink()
                 audio_file.unlink()
@@ -292,7 +270,7 @@ def download_video(video, download_path, use_oauth=True, retry_attempts=3):
                     "-movflags", "+faststart",
                     str(output_file)
                 ]
-                subprocess.run(cmd, check=True, capture_output=True, creationflags=_NO_WINDOW)
+                subprocess.run(cmd, check=True, capture_output=True)
                 raw_file.unlink()
                 console.print(f"[green]  ✓ Downloaded + normalized ({stream.resolution} → 1080p)[/green]")
                 return output_file
@@ -435,7 +413,7 @@ def compile_videos(video_files, topic, output_path, auto_mode=False):
     ]
     m1_timeout = None if auto_mode else 600
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=m1_timeout, creationflags=_NO_WINDOW)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=m1_timeout)
         m1_ok = result.returncode == 0 and output_filepath.exists() and output_filepath.stat().st_size > 1_000_000
     except subprocess.TimeoutExpired:
         console.print("[yellow]  Stream-copy timed out — falling through to re-encode[/yellow]")
@@ -473,7 +451,7 @@ def compile_videos(video_files, topic, output_path, auto_mode=False):
         "-movflags", "+faststart",
         str(output_filepath)
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=m2_timeout, creationflags=_NO_WINDOW)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=m2_timeout)
 
     if result.returncode == 0 and output_filepath.exists() and output_filepath.stat().st_size > 1_000_000:
         console.print(f"[green]✓ Compilation successful (frame-drop re-encode)[/green]")
@@ -517,7 +495,7 @@ def compile_videos(video_files, topic, output_path, auto_mode=False):
         "-pix_fmt", "yuv420p",
         str(output_filepath)
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=m3_timeout, creationflags=_NO_WINDOW)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=m3_timeout)
 
     if result.returncode == 0 and output_filepath.exists() and output_filepath.stat().st_size > 1_000_000:
         console.print(f"[green]✓ Compilation successful (full re-encode)[/green]")

@@ -2,8 +2,7 @@
 """
 SDMNH Automation — fully hands-off compile + upload pipeline.
 
-Designed to run once per day when the laptop starts via Windows Task Scheduler.
-See setup_startup.ps1 to register the scheduled task.
+Designed to run once per day via cron or systemd timer.
 
 Usage
 -----
@@ -36,10 +35,8 @@ import socket
 import subprocess
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-
-_NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
 
 # ── Path setup ────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).parent.resolve()
@@ -104,7 +101,7 @@ def _save_json(path: Path, data: dict):
 
 def already_ran_today() -> bool:
     data = _load_json(LAST_RUN_FILE)
-    if data.get('date') != datetime.utcnow().date().isoformat():
+    if data.get('date') != datetime.now(timezone.utc).date().isoformat():
         return False
     # Allow a retry if today's run never produced a successful upload
     return data.get('video_id') is not None
@@ -113,14 +110,14 @@ def already_ran_today() -> bool:
 def get_todays_failed_topics() -> list:
     """Return topics that already failed compilation today (should not be retried)."""
     data = _load_json(LAST_RUN_FILE)
-    if data.get('date') != datetime.utcnow().date().isoformat():
+    if data.get('date') != datetime.now(timezone.utc).date().isoformat():
         return []
     return data.get('failed_topics', [])
 
 
 def record_failed_topic(topic: str):
     """Append topic to today's failed list so it won't be picked again today."""
-    today = datetime.utcnow().date().isoformat()
+    today = datetime.now(timezone.utc).date().isoformat()
     data = _load_json(LAST_RUN_FILE)
     if data.get('date') != today:
         data = {'date': today}
@@ -132,7 +129,7 @@ def record_failed_topic(topic: str):
 
 
 def record_run(topic: str, title: str, video_id: str | None, duration_seconds: float):
-    today = datetime.utcnow().date().isoformat()
+    today = datetime.now(timezone.utc).date().isoformat()
     # Preserve the failed_topics list accumulated across retries today
     existing = _load_json(LAST_RUN_FILE)
     failed_topics = existing.get('failed_topics', []) if existing.get('date') == today else []
@@ -153,13 +150,13 @@ def db_needs_update() -> bool:
         return True
     try:
         last = datetime.fromisoformat(data['date'])
-        return (datetime.utcnow() - last).days >= DB_UPDATE_INTERVAL_DAYS
+        return (datetime.now(timezone.utc) - last).days >= DB_UPDATE_INTERVAL_DAYS
     except Exception:
         return True
 
 
 def record_db_update():
-    _save_json(LAST_DB_UPDATE_FILE, {'date': datetime.utcnow().isoformat()})
+    _save_json(LAST_DB_UPDATE_FILE, {'date': datetime.now(timezone.utc).isoformat()})
 
 
 # ── Network ───────────────────────────────────────────────────────────────────
@@ -179,25 +176,6 @@ def wait_for_network(max_seconds: int = NETWORK_WAIT_SECONDS) -> bool:
     return False
 
 
-def is_ethernet_connected() -> bool:
-    """Return True if a physical Ethernet adapter (802.3) is currently Up."""
-    try:
-        result = subprocess.run(
-            [
-                'powershell', '-WindowStyle', 'Hidden', '-NonInteractive', '-Command',
-                'Get-NetAdapter -Physical '
-                '| Where-Object Status -eq Up '
-                '| Where-Object MediaType -eq 802.3 '
-                '| Select-Object -First 1 -ExpandProperty Name',
-            ],
-            capture_output=True, text=True, timeout=15, creationflags=_NO_WINDOW,
-        )
-        return bool(result.stdout.strip())
-    except Exception:
-        # If the check itself fails, don't block the run
-        return True
-
-
 # ── Database update ───────────────────────────────────────────────────────────
 
 def update_database():
@@ -207,7 +185,6 @@ def update_database():
         [sys.executable, str(BASE_DIR / 'update_db.py')],
         cwd=str(BASE_DIR),
         timeout=600,
-        creationflags=_NO_WINDOW,
     )
     if result.returncode == 0:
         logging.info("Database refresh complete.")
@@ -350,13 +327,6 @@ def main():
         return
     logging.info("Network connection established.")
 
-    # ── Ethernet-only guard ──
-    if cfg.get('require_ethernet', False) and not args.force:
-        if not is_ethernet_connected():
-            logging.info("Not connected via Ethernet — skipping. Will retry on next startup.")
-            return
-        logging.info("Ethernet connection confirmed.")
-
     # ── Refresh database if stale ──
     if db_needs_update():
         update_database()
@@ -395,7 +365,7 @@ def main():
     session.close()
 
     # ── Mark today as started, preserving any failed_topics from earlier attempts ──
-    today = datetime.utcnow().date().isoformat()
+    today = datetime.now(timezone.utc).date().isoformat()
     existing = _load_json(LAST_RUN_FILE)
     failed_topics = existing.get('failed_topics', []) if existing.get('date') == today else []
     _save_json(LAST_RUN_FILE, {'date': today, 'status': 'in_progress', 'failed_topics': failed_topics})

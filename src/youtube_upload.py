@@ -17,11 +17,8 @@ NOTE: To upload custom thumbnails your YouTube channel must be verified
 """
 
 import os
-import subprocess
 import urllib.request
 from pathlib import Path
-
-_NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials

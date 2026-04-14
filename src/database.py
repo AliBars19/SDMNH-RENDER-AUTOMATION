@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Table, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
@@ -12,7 +12,7 @@ compilation_videos = Table(
     Base.metadata,
     Column('compilation_id', Integer, ForeignKey('compilations.id')),
     Column('video_id', Integer, ForeignKey('videos.id')),
-    Column('added_at', DateTime, default=datetime.utcnow)
+    Column('added_at', DateTime, default=lambda: datetime.now(timezone.utc))
 )
 
 
@@ -28,7 +28,7 @@ class Video(Base):
     upload_date = Column(String(10))  # YYYY-MM-DD
     channel = Column(String(200))
     topic = Column(String(100), index=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     
     compilations = relationship('Compilation', secondary=compilation_videos, back_populates='videos')
 
@@ -40,7 +40,7 @@ class Compilation(Base):
     topic = Column(String(100))
     filename = Column(String(500))
     video_count = Column(Integer)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     
     videos = relationship('Video', secondary=compilation_videos, back_populates='compilations')
 
