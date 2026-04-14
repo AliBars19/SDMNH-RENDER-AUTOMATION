@@ -339,37 +339,41 @@ def main():
         logging.info("Database is up to date (refreshed within the last 7 days).")
 
     # ── Select topic ──
-    db = Database(cfg['db_path'])
-    session = db.get_session()
+    topic = resolve_topic(cfg, args)
+    if not topic:
+        return
 
-    topic = args.topic
-    if topic:
-        if topic not in cfg['topics']:
-            logging.error(f"Unknown topic '{topic}'. Check config.yaml for valid options.")
-            session.close()
-            return
-        # Validate it has videos
-        count = session.query(Video).filter(Video.topic == topic).count()
-        if count == 0:
-            logging.error(
-                f"Topic '{topic}' has no videos in the database. "
-                "Run update_db.py or choose a different topic."
-            )
-            session.close()
-            return
-        logging.info(f"Using manually specified topic: {topic}")
-    else:
+    # ── Run pipeline ──
+    run_pipeline(cfg, topic)
+
+
+def resolve_topic(cfg: dict, args) -> str | None:
+    """Select a topic from args or randomly from the database."""
+    db = Database(cfg['db_path'])
+    with db.session_scope() as session:
+        if args.topic:
+            if args.topic not in cfg['topics']:
+                logging.error(f"Unknown topic '{args.topic}'. Check config.yaml for valid options.")
+                return None
+            count = session.query(Video).filter(Video.topic == args.topic).count()
+            if count == 0:
+                logging.error(
+                    f"Topic '{args.topic}' has no videos in the database. "
+                    "Run update_db.py or choose a different topic."
+                )
+                return None
+            logging.info(f"Using manually specified topic: {args.topic}")
+            return args.topic
+
         failed_today = get_todays_failed_topics()
         if failed_today:
             logging.info(f"Skipping topics that failed earlier today: {failed_today}")
-        topic = select_random_topic(session, cfg['topics'], skip_topics=failed_today)
-        if not topic:
-            session.close()
-            return
+        return select_random_topic(session, cfg['topics'], skip_topics=failed_today)
 
-    session.close()
 
-    # ── Mark today as started, preserving any failed_topics from earlier attempts ──
+def run_pipeline(cfg: dict, topic: str):
+    """Compile videos, upload to YouTube, and clean up."""
+    # Mark today as started
     today = _today_utc()
     existing = _load_json(LAST_RUN_FILE)
     failed_topics = existing.get('failed_topics', []) if existing.get('date') == today else []
@@ -381,9 +385,7 @@ def main():
 
     try:
         output_file, total_seconds, selected_videos = run_auto(
-            topic=topic,
-            max_hours=max_hours,
-            cfg=cfg,
+            topic=topic, max_hours=max_hours, cfg=cfg,
         )
     except Exception as exc:
         logging.error(f"Compilation failed: {exc}")
@@ -420,25 +422,15 @@ def main():
     video_id = None
     service = None
     try:
-        service = authenticate(
-            yt_cfg['credentials_path'],
-            yt_cfg['token_path'],
-        )
-
+        service = authenticate(yt_cfg['credentials_path'], yt_cfg['token_path'])
         video_id = upload_video(
-            service=service,
-            video_path=output_file,
-            title=title,
-            description=description,
-            tags=tags,
-            category_id=category_id,
-            privacy_status=privacy_status,
+            service=service, video_path=output_file, title=title,
+            description=description, tags=tags,
+            category_id=category_id, privacy_status=privacy_status,
         )
-
         logging.info(f"Upload successful!  video_id={video_id}")
         logging.info(f"YouTube URL: https://www.youtube.com/watch?v={video_id}")
 
-        # Set thumbnail
         if thumb:
             ok = set_thumbnail(service, video_id, thumb)
             if ok:
@@ -448,26 +440,21 @@ def main():
                     "Thumbnail upload failed. Make sure your channel is verified at "
                     "https://www.youtube.com/verify"
                 )
-
     except FileNotFoundError as exc:
         logging.error(str(exc))
         logging.error("Run:  python automation.py --setup  to authenticate.")
     except Exception as exc:
         logging.error(f"YouTube upload failed: {exc}")
 
-    # ── Record run (even if upload failed, compilation is saved) ──
+    # ── Record run ──
     record_run(topic, title, video_id, total_seconds)
 
     # ── Delete output file once YouTube confirms the video is public ──
     if video_id and service:
         max_wait = int(cfg.get('youtube_processing_wait_seconds', 14400))
         deleted = wait_and_delete_when_public(
-            service=service,
-            video_id=video_id,
-            video_path=output_file,
-            poll_interval=60,
-            max_wait_seconds=max_wait,
-            log_fn=logging.info,
+            service=service, video_id=video_id, video_path=output_file,
+            poll_interval=60, max_wait_seconds=max_wait, log_fn=logging.info,
         )
         if not deleted:
             logging.warning(

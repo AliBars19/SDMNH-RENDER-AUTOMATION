@@ -16,9 +16,12 @@ NOTE: To upload custom thumbnails your YouTube channel must be verified
 (phone verification at youtube.com/verify).
 """
 
+import logging
 import os
 import urllib.request
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -273,10 +276,10 @@ def upload_video(
         media_body=media,
     )
 
-    print(f"\n  Uploading: {title}")
-    print(f"  File:      {Path(video_path).name}")
+    logger.info("Uploading: %s", title)
+    logger.info("File: %s", Path(video_path).name)
     size_gb = Path(video_path).stat().st_size / (1024 ** 3)
-    print(f"  Size:      {size_gb:.2f} GB")
+    logger.info("Size: %.2f GB", size_gb)
 
     response = None
     retry_count = 0
@@ -286,19 +289,19 @@ def upload_video(
             status, response = insert_request.next_chunk()
             if status:
                 pct = int(status.progress() * 100)
-                print(f"\r  Progress: {pct}%  ", end='', flush=True)
+                logger.info("Upload progress: %d%%", pct)
         except HttpError as e:
             if e.resp.status in (500, 502, 503, 504):
                 retry_count += 1
                 if retry_count > 10:
                     raise Exception(f"Upload failed after {retry_count} retries: {e}") from e
                 wait = min(2 ** retry_count, 64)
-                print(f"\n  Server error {e.resp.status} — retrying in {wait}s...")
+                logger.warning("Server error %d — retrying in %ds...", e.resp.status, wait)
                 time.sleep(wait)
             else:
                 raise
 
-    print()  # newline after progress bar
+    logger.info("Upload complete.")
     return response['id']
 
 
@@ -316,7 +319,7 @@ def set_thumbnail(service, video_id: str, thumbnail_path: str) -> bool:
         ).execute()
         return True
     except HttpError as e:
-        print(f"  Warning: thumbnail upload failed: {e}")
+        logger.warning("Thumbnail upload failed: %s", e)
         return False
 
 
