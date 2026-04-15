@@ -16,6 +16,7 @@ from collections import OrderedDict
 
 from src.database import Database, Video, Compilation, compilation_videos
 
+BASE_DIR = Path(__file__).parent.resolve()
 console = Console()
 
 
@@ -217,6 +218,10 @@ def download_video(video, download_path, yt_dlp_format=None, retry_attempts=3):
     output_file = dl / f"{safe_title}_{video.youtube_id}.mp4"
     fmt = yt_dlp_format or "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
 
+    # Use cookies file if present (required for server IPs flagged by YouTube bot detection)
+    cookies_path = BASE_DIR / "credentials" / "youtube_cookies.txt"
+    cookies_args = ["--cookies", str(cookies_path)] if cookies_path.exists() else []
+
     for attempt in range(retry_attempts):
         try:
             # Download with yt-dlp
@@ -227,9 +232,10 @@ def download_video(video, download_path, yt_dlp_format=None, retry_attempts=3):
                 "-o", str(raw_file),
                 "--no-warnings",
                 "--no-progress",
+                *cookies_args,
                 video.url,
             ]
-            subprocess.run(dl_cmd, check=True, capture_output=True, timeout=600)
+            result = subprocess.run(dl_cmd, check=True, capture_output=True, timeout=600)
 
             if not raw_file.exists():
                 raise FileNotFoundError(f"yt-dlp did not produce output file for {video.youtube_id}")
@@ -256,7 +262,12 @@ def download_video(video, download_path, yt_dlp_format=None, retry_attempts=3):
         except Exception as e:
             raw_file.unlink(missing_ok=True)
             output_file.unlink(missing_ok=True)
-            error_msg = str(e).lower()
+            if isinstance(e, subprocess.CalledProcessError) and e.stderr:
+                stderr = e.stderr.decode(errors="replace").strip()
+                logging.warning("yt-dlp error for %s: %s", video.youtube_id, stderr[-500:])
+                error_msg = stderr.lower()
+            else:
+                error_msg = str(e).lower()
 
             if "429" in error_msg or "too many" in error_msg:
                 console.print(f"[yellow]  Rate limited — waiting 20s...[/yellow]")
