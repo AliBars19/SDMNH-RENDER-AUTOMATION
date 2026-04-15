@@ -218,7 +218,7 @@ def download_video(video, download_path, yt_dlp_format=None, retry_attempts=3):
     output_file = dl / f"{safe_title}_{video.youtube_id}.mp4"
     fmt = yt_dlp_format or "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
 
-    # Use cookies file if present (required for server IPs flagged by YouTube bot detection)
+    # Cookies bypass YouTube bot detection on server IPs
     cookies_path = BASE_DIR / "credentials" / "youtube_cookies.txt"
     cookies_args = ["--cookies", str(cookies_path)] if cookies_path.exists() else []
 
@@ -232,6 +232,7 @@ def download_video(video, download_path, yt_dlp_format=None, retry_attempts=3):
                 "-o", str(raw_file),
                 "--no-warnings",
                 "--no-progress",
+                "--js-runtimes", "node:/usr/bin/node",
                 *cookies_args,
                 video.url,
             ]
