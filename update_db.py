@@ -64,7 +64,8 @@ def scrape_channel(channel_url):
                 "url": vid_info.get("webpage_url") or vid_info.get("url"),
                 "duration": vid_info.get("duration"),
                 "upload_date": upload_date,
-                "channel": vid_info.get("channel") or vid_info.get("uploader")
+                "view_count": vid_info.get("view_count"),
+                "channel": vid_info.get("channel") or vid_info.get("uploader"),
             })
         except (json.JSONDecodeError, KeyError, ValueError):
             continue
@@ -123,14 +124,17 @@ def main():
         if not youtube_id:
             continue
         
-        # Check if exists
+        # Check if exists — update view_count if so
         existing = session.query(Video).filter_by(youtube_id=youtube_id).first()
         if existing:
+            new_views = vid_data.get("view_count")
+            if new_views and new_views != existing.view_count:
+                existing.view_count = new_views
             continue
-        
+
         # Assign topic
         topic = assign_topic(vid_data.get("title"), cfg['topics'])
-        
+
         # Create new video
         video = Video(
             youtube_id=youtube_id,
@@ -138,10 +142,11 @@ def main():
             url=vid_data.get("url"),
             duration=vid_data.get("duration"),
             upload_date=vid_data.get("upload_date"),
+            view_count=vid_data.get("view_count"),
             channel=vid_data.get("channel"),
-            topic=topic
+            topic=topic,
         )
-        
+
         session.add(video)
         new_count += 1
     

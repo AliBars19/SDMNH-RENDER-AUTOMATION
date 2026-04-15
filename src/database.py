@@ -29,6 +29,7 @@ class Video(Base):
     url = Column(String(500))
     duration = Column(Integer)  # seconds
     upload_date = Column(String(10))  # YYYY-MM-DD
+    view_count = Column(Integer)  # YouTube view count
     channel = Column(String(200))
     topic = Column(String(100), index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

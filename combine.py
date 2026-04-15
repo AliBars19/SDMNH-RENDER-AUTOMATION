@@ -109,21 +109,35 @@ def select_videos(session, topic, count, cooldown_days):
     return available[:count]
 
 
+def _score_video(video, max_views: int, newest_ts: float, oldest_ts: float) -> float:
+    """Score video by popularity (60%) + recency (40%). Higher = better."""
+    # Popularity: normalized view count (0-1)
+    views = video.view_count or 0
+    pop_score = views / max_views if max_views > 0 else 0
+
+    # Recency: normalized upload date (0-1, newest=1)
+    try:
+        ts = datetime.strptime(video.upload_date, "%Y%m%d").timestamp() if video.upload_date else oldest_ts
+    except ValueError:
+        ts = oldest_ts
+    date_range = newest_ts - oldest_ts
+    rec_score = (ts - oldest_ts) / date_range if date_range > 0 else 0.5
+
+    return (pop_score * 0.6) + (rec_score * 0.4)
+
+
 def select_videos_within_duration(session, topic, max_duration_seconds, cooldown_days):
     """
-    Automated mode: select videos for the topic whose TOTAL duration stays
-    at or under max_duration_seconds.  Checked using DB duration values so
-    nothing is downloaded before the limit is verified.
+    Automated mode: select videos scored by popularity + recency whose
+    TOTAL duration stays at or under max_duration_seconds.
 
-    Available (non-cooldown) videos are shuffled for variety, then cooldown
-    overflow is appended as a fallback.  Videos with no duration data are
-    assumed to be 1 hour each.
+    Scoring: 60% view count (normalized) + 40% recency (normalized).
+    Top-scored videos picked first. Cooldown overflow used as fallback.
+    Small random jitter added to prevent identical compilations.
     """
     DEFAULT_DURATION = 3600  # seconds assumed when duration is NULL in DB
 
-    all_videos = session.query(Video).filter(Video.topic == topic).order_by(
-        Video.upload_date.desc()
-    ).all()
+    all_videos = session.query(Video).filter(Video.topic == topic).all()
 
     if not all_videos:
         return []
@@ -139,11 +153,25 @@ def select_videos_within_duration(session, topic, max_duration_seconds, cooldown
         else:
             cooldown_overflow.append(video)
 
-    # Shuffle each bucket separately so selection varies per run
-    random.shuffle(available)
-    random.shuffle(cooldown_overflow)
+    # Compute scoring params across all videos in topic
+    max_views = max((v.view_count or 0) for v in all_videos) if all_videos else 1
+    dates = []
+    for v in all_videos:
+        try:
+            dates.append(datetime.strptime(v.upload_date, "%Y%m%d").timestamp() if v.upload_date else 0)
+        except ValueError:
+            dates.append(0)
+    newest_ts = max(dates) if dates else 1
+    oldest_ts = min(d for d in dates if d > 0) if any(d > 0 for d in dates) else 0
 
-    # Prioritise fresh videos; fall back to cooldown overflow if needed
+    # Score and sort — add small jitter for variety between runs
+    for bucket in (available, cooldown_overflow):
+        bucket.sort(
+            key=lambda v: _score_video(v, max_views, newest_ts, oldest_ts) + random.uniform(0, 0.05),
+            reverse=True,
+        )
+
+    # Pick from available first, then cooldown overflow
     candidates = available + cooldown_overflow
 
     selected = []

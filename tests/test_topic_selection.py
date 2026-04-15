@@ -77,6 +77,32 @@ class TestSelectVideosWithinDuration:
         assert len(selected) > 0
 
 
+class TestVideoScoring:
+
+    def test_high_views_scores_higher(self, session, sample_videos):
+        from combine import _score_video
+        # vid005: 20M views, newest. vid001: 15M views, oldest.
+        max_views = 20000000
+        newest_ts = 1714521600.0  # 2024-05-01
+        oldest_ts = 1705276800.0  # 2024-01-15
+
+        v5 = [v for v in sample_videos if v.youtube_id == "vid005"][0]
+        v1 = [v for v in sample_videos if v.youtube_id == "vid001"][0]
+
+        score_v5 = _score_video(v5, max_views, newest_ts, oldest_ts)
+        score_v1 = _score_video(v1, max_views, newest_ts, oldest_ts)
+        # vid005 has more views AND is newer → higher score
+        assert score_v5 > score_v1
+
+    def test_selection_prefers_popular_recent(self, session, sample_videos):
+        from combine import select_videos_within_duration
+
+        # Only 4200s cap → should pick vid005 (most popular + newest among_us)
+        selected = select_videos_within_duration(session, "among_us", 4200, 30)
+        assert len(selected) == 1
+        assert selected[0].youtube_id == "vid005"
+
+
 class TestStateHelpers:
 
     def test_today_utc(self):
