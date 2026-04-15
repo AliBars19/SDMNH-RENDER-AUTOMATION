@@ -1,0 +1,11 @@
+[Unit]
+Description=SDMNH Evening Render (16:00 UTC → upload ~7pm UTC)
+Requires=sdmnh-orchestrator@evening.service
+
+[Timer]
+OnCalendar=*-*-* 16:00:00 UTC
+Persistent=true
+Unit=sdmnh-orchestrator@evening.service
+
+[Install]
+WantedBy=timers.target

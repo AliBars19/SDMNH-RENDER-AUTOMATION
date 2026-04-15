@@ -61,6 +61,7 @@ LAST_DB_UPDATE_FILE = BASE_DIR / 'data' / 'last_db_update.json'
 LOG_FILE = BASE_DIR / 'data' / 'automation.log'
 DB_UPDATE_INTERVAL_DAYS = 7   # Re-scrape YouTube channels every 7 days
 NETWORK_WAIT_SECONDS = 120    # Wait up to 2 min for network on startup
+MAX_RUNS_PER_DAY = 2          # Two uploads per day (morning + evening)
 
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -104,49 +105,54 @@ def _today_utc() -> str:
     return datetime.now(timezone.utc).date().isoformat()
 
 
-def already_ran_today() -> bool:
+def _today_state() -> dict:
+    """Return today's last_run.json entry, or a fresh skeleton if absent/stale."""
     data = _load_json(LAST_RUN_FILE)
-    if data.get('date') != _today_utc():
-        return False
-    # Allow a retry if today's run never produced a successful upload
-    return data.get('video_id') is not None
+    if data.get('date') == _today_utc():
+        return data
+    return {'date': _today_utc(), 'runs': [], 'failed_topics': []}
+
+
+def already_ran_today() -> bool:
+    """True when MAX_RUNS_PER_DAY successful uploads have already completed today."""
+    state = _today_state()
+    successful = [r for r in state.get('runs', []) if r.get('video_id')]
+    return len(successful) >= MAX_RUNS_PER_DAY
 
 
 def get_todays_failed_topics() -> list:
     """Return topics that already failed compilation today (should not be retried)."""
-    data = _load_json(LAST_RUN_FILE)
-    if data.get('date') != _today_utc():
-        return []
-    return data.get('failed_topics', [])
+    return _today_state().get('failed_topics', [])
+
+
+def get_todays_used_topics() -> list:
+    """Return topics that already completed a successful upload today."""
+    state = _today_state()
+    return [r['topic'] for r in state.get('runs', []) if r.get('video_id')]
 
 
 def record_failed_topic(topic: str):
     """Append topic to today's failed list so it won't be picked again today."""
-    today = _today_utc()
-    data = _load_json(LAST_RUN_FILE)
-    if data.get('date') != today:
-        data = {'date': today}
-    failed = data.get('failed_topics', [])
+    state = _today_state()
+    failed = state.get('failed_topics', [])
     if topic not in failed:
         failed.append(topic)
-    data['failed_topics'] = failed
-    _save_json(LAST_RUN_FILE, data)
+    state['failed_topics'] = failed
+    _save_json(LAST_RUN_FILE, state)
 
 
 def record_run(topic: str, title: str, video_id: str | None, duration_seconds: float):
-    today = _today_utc()
-    # Preserve the failed_topics list accumulated across retries today
-    existing = _load_json(LAST_RUN_FILE)
-    failed_topics = existing.get('failed_topics', []) if existing.get('date') == today else []
-    _save_json(LAST_RUN_FILE, {
-        'date': today,
+    state = _today_state()
+    runs = state.get('runs', [])
+    runs.append({
         'topic': topic,
         'title': title,
         'video_id': video_id,
         'duration_seconds': round(duration_seconds),
         'youtube_url': f'https://www.youtube.com/watch?v={video_id}' if video_id else None,
-        'failed_topics': failed_topics,
     })
+    state['runs'] = runs
+    _save_json(LAST_RUN_FILE, state)
 
 
 def db_needs_update() -> bool:
@@ -200,37 +206,77 @@ def update_database():
 
 # ── Topic selection ───────────────────────────────────────────────────────────
 
-def select_random_topic(session, topics_config: dict, skip_topics: list | None = None) -> str | None:
+def select_topic_by_rank(
+    session,
+    topics_config: dict,
+    skip_topics: list | None = None,
+    max_uses_per_week: int = 2,
+) -> str | None:
     """
-    Pick a random topic that has at least one video in the database.
-    Excludes any topics in skip_topics (e.g. ones that already failed today).
-    Falls back to 'general' if all specific topics are exhausted or skipped.
+    Pick the highest-ranked topic that:
+      - Has at least one video in the database
+      - Has not been used >= max_uses_per_week times in the current calendar week
+      - Is not in skip_topics (e.g. topics that already failed today)
+
+    Topics are ranked by the total view_count of all their videos (descending).
+    Falls back to 'general' if all specific topics are exhausted.
     """
+    from sqlalchemy import func
+    from src.database import Compilation
+
     skip = set(skip_topics or [])
 
-    specific_candidates = []
+    # Count how many times each topic was compiled this calendar week (Mon–Sun)
+    today = datetime.now(timezone.utc).date()
+    week_start = today - timedelta(days=today.weekday())
+    week_start_dt = datetime(
+        week_start.year, week_start.month, week_start.day, tzinfo=timezone.utc
+    )
+    weekly_counts: dict[str, int] = {}
+    rows = (
+        session.query(Compilation.topic, func.count(Compilation.id))
+        .filter(Compilation.created_at >= week_start_dt)
+        .group_by(Compilation.topic)
+        .all()
+    )
+    for t, cnt in rows:
+        weekly_counts[t] = cnt
+
+    # Score every eligible topic by aggregate view_count
+    topic_scores: list[tuple[str, int]] = []
     for topic in topics_config:
         if topic == 'general' or topic in skip:
             continue
-        count = session.query(Video).filter(Video.topic == topic).count()
-        if count > 0:
-            specific_candidates.append(topic)
+        if weekly_counts.get(topic, 0) >= max_uses_per_week:
+            logging.debug("Topic '%s' skipped — used %d/%d times this week",
+                          topic, weekly_counts[topic], max_uses_per_week)
+            continue
+        video_count = session.query(Video).filter(Video.topic == topic).count()
+        if video_count == 0:
+            continue
+        total_views: int = (
+            session.query(func.sum(Video.view_count))
+            .filter(Video.topic == topic, Video.view_count.isnot(None))
+            .scalar()
+        ) or 0
+        topic_scores.append((topic, total_views))
 
-    if specific_candidates:
-        chosen = random.choice(specific_candidates)
+    if topic_scores:
+        topic_scores.sort(key=lambda x: x[1], reverse=True)
+        chosen, chosen_views = topic_scores[0]
         skipped_msg = f", skipped today: {sorted(skip)}" if skip else ""
         logging.info(
-            f"Randomly selected topic '{chosen}' "
-            f"(pool: {len(specific_candidates)} specific topics{skipped_msg})"
+            "Selected topic '%s' (rank 1 of %d eligible, %s total views%s)",
+            chosen, len(topic_scores), f"{chosen_views:,}", skipped_msg,
         )
         return chosen
 
-    # All specific topics are exhausted or skipped — fall back to general
+    # All specific topics exhausted/capped — fall back to general
     general_count = session.query(Video).filter(Video.topic == 'general').count()
     if general_count > 0 and 'general' not in skip:
         logging.info(
-            f"All specific topics exhausted/skipped — falling back to 'general' "
-            f"({general_count} videos available)"
+            "All specific topics exhausted/weekly-capped — falling back to 'general' "
+            "(%d videos available)", general_count,
         )
         return 'general'
 
@@ -238,6 +284,15 @@ def select_random_topic(session, topics_config: dict, skip_topics: list | None =
         "No topics have videos. Run:  python update_db.py  to populate the database."
     )
     return None
+
+
+# Keep old name as alias so existing tests and call-sites still work
+def select_random_topic(
+    session,
+    topics_config: dict,
+    skip_topics: list | None = None,
+) -> str | None:
+    return select_topic_by_rank(session, topics_config, skip_topics=skip_topics)
 
 
 # ── First-time setup ──────────────────────────────────────────────────────────
@@ -371,18 +426,24 @@ def resolve_topic(cfg: dict, args) -> str | None:
             return args.topic
 
         failed_today = get_todays_failed_topics()
-        if failed_today:
-            logging.info(f"Skipping topics that failed earlier today: {failed_today}")
-        return select_random_topic(session, cfg['topics'], skip_topics=failed_today)
+        used_today = get_todays_used_topics()
+        skip_today = list(set(failed_today + used_today))
+        if skip_today:
+            logging.info("Skipping topics already used/failed today: %s", skip_today)
+        return select_topic_by_rank(
+            session,
+            cfg['topics'],
+            skip_topics=skip_today,
+            max_uses_per_week=cfg.get('max_topic_uses_per_week', 2),
+        )
 
 
 def run_pipeline(cfg: dict, topic: str, ephemeral: bool = False):
     """Compile videos, upload to YouTube, and clean up."""
-    # Mark today as started
-    today = _today_utc()
-    existing = _load_json(LAST_RUN_FILE)
-    failed_topics = existing.get('failed_topics', []) if existing.get('date') == today else []
-    _save_json(LAST_RUN_FILE, {'date': today, 'status': 'in_progress', 'failed_topics': failed_topics})
+    # Mark today as started (preserve existing runs + failed_topics)
+    state = _today_state()
+    state['status'] = 'in_progress'
+    _save_json(LAST_RUN_FILE, state)
 
     # ── Compile ──
     max_hours = cfg.get('max_compilation_hours', 12)
