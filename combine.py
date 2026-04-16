@@ -202,7 +202,8 @@ def sanitize_filename(filename):
 
 
 def download_video(video, download_path, yt_dlp_format=None, retry_attempts=3):
-    """Download video using yt-dlp, then normalize to 1080p/30fps/AAC with FFmpeg."""
+    """Download video with yt-dlp. Sidemen videos are already 1080p/30fps/AAC-compatible,
+    so no re-encode — concat fallbacks handle any mismatches."""
     dl = Path(download_path)
 
     # Check if already downloaded (cache by youtube_id in filename)
@@ -214,9 +215,8 @@ def download_video(video, download_path, yt_dlp_format=None, retry_attempts=3):
     console.print(f"[cyan]Downloading: {video.title[:60]}[/cyan]")
 
     safe_title = sanitize_filename(video.title)
-    raw_file = dl / f"temp_raw_{video.youtube_id}.mp4"
     output_file = dl / f"{safe_title}_{video.youtube_id}.mp4"
-    fmt = yt_dlp_format or "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+    fmt = yt_dlp_format or "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]/best"
 
     # Cookies bypass YouTube bot detection on server IPs
     cookies_path = BASE_DIR / "credentials" / "youtube_cookies.txt"
@@ -224,44 +224,26 @@ def download_video(video, download_path, yt_dlp_format=None, retry_attempts=3):
 
     for attempt in range(retry_attempts):
         try:
-            # Download with yt-dlp
             dl_cmd = [
                 "yt-dlp",
                 "-f", fmt,
                 "--merge-output-format", "mp4",
-                "-o", str(raw_file),
+                "-o", str(output_file),
                 "--no-warnings",
                 "--no-progress",
                 "--js-runtimes", "node:/usr/bin/node",
                 *cookies_args,
                 video.url,
             ]
-            result = subprocess.run(dl_cmd, check=True, capture_output=True, timeout=600)
+            subprocess.run(dl_cmd, check=True, capture_output=True, timeout=1200)
 
-            if not raw_file.exists():
+            if not output_file.exists():
                 raise FileNotFoundError(f"yt-dlp did not produce output file for {video.youtube_id}")
 
-            # Normalize to 1080p/30fps/AAC so stream-copy concat works reliably
-            norm_cmd = [
-                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-                "-i", str(raw_file),
-                "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,"
-                       "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black,fps=30",
-                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
-                "-threads", "4",
-                "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
-                "-pix_fmt", "yuv420p",
-                "-movflags", "+faststart",
-                str(output_file),
-            ]
-            subprocess.run(norm_cmd, check=True, capture_output=True)
-            raw_file.unlink(missing_ok=True)
-
-            console.print(f"[green]  ✓ Downloaded + normalized → 1080p[/green]")
+            console.print(f"[green]  ✓ Downloaded[/green]")
             return output_file
 
         except Exception as e:
-            raw_file.unlink(missing_ok=True)
             output_file.unlink(missing_ok=True)
             if isinstance(e, subprocess.CalledProcessError) and e.stderr:
                 stderr = e.stderr.decode(errors="replace").strip()
