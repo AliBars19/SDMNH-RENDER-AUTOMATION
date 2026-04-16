@@ -351,13 +351,7 @@ def download_videos_parallel(videos, download_path, max_workers=3):
 
 
 def compile_videos(video_files, topic, output_path, auto_mode=False):
-    """
-    Compile downloaded videos into a single MP4 using FFmpeg.
-
-    auto_mode=True  — skips all interactive prompts; proceeds with full
-                      re-encode if earlier methods fail.
-    auto_mode=False — original interactive behaviour (asks before method 3).
-    """
+    """Concat downloaded videos via FFmpeg stream-copy (no re-encode, ever)."""
     if not video_files:
         console.print("[red]No videos to compile[/red]")
         return None
@@ -376,10 +370,8 @@ def compile_videos(video_files, topic, output_path, auto_mode=False):
     output_filename = f"{topic}_compilation_{timestamp}.mp4"
     output_filepath = Path(output_path) / output_filename
 
-    console.print(f"\n[cyan]Compiling {len(video_files)} videos...[/cyan]")
+    console.print(f"\n[cyan]Compiling {len(video_files)} videos (stream-copy)...[/cyan]")
 
-    # ── METHOD 1: Stream-copy with timestamp correction (fast, no quality loss) ──
-    console.print("[dim]  Attempting stream-copy with timestamp correction...[/dim]")
     cmd = [
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-f", "concat", "-safe", "0",
@@ -391,100 +383,18 @@ def compile_videos(video_files, topic, output_path, auto_mode=False):
         "-movflags", "+faststart",
         str(output_filepath)
     ]
-    m1_timeout = None if auto_mode else 600
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=m1_timeout)
-        m1_ok = result.returncode == 0 and output_filepath.exists() and output_filepath.stat().st_size > 1_000_000
-    except subprocess.TimeoutExpired:
-        console.print("[yellow]  Stream-copy timed out — falling through to re-encode[/yellow]")
-        m1_ok = False
-        result = None
-
-    if m1_ok:
-        console.print(f"[green]✓ Fast compilation successful[/green]")
-        return output_filepath
-
-    if result is not None and result.returncode != 0 and result.stderr:
-        logging.warning(f"FFmpeg method 1 stderr: {result.stderr[:500]}")
-
-    if output_filepath.exists():
-        output_filepath.unlink()
-
-    # ── METHOD 2: Frame-drop filter + fast re-encode ──
-    console.print("[yellow]  Stream-copy failed — trying frame-drop re-encode...[/yellow]")
-    if output_filepath.exists():
-        output_filepath.unlink()
-
-    # No timeout in auto_mode since a 12-hour video can take hours to encode
-    m2_timeout = None if auto_mode else 3600
-
-    cmd = [
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "warning",
-        "-f", "concat", "-safe", "0",
-        "-i", str(concat_file),
-        "-vf", "mpdecimate,setpts=N/FRAME_RATE/TB",
-        "-vsync", "cfr",
-        "-r", "30",
-        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
-        "-threads", "4",
-        "-c:a", "copy",
-        "-movflags", "+faststart",
-        str(output_filepath)
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=m2_timeout)
+    result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode == 0 and output_filepath.exists() and output_filepath.stat().st_size > 1_000_000:
-        console.print(f"[green]✓ Compilation successful (frame-drop re-encode)[/green]")
+        console.print(f"[green]✓ Compilation successful[/green]")
         return output_filepath
 
+    console.print("[red]✗ Stream-copy concat failed[/red]")
     if result.stderr:
-        logging.warning(f"FFmpeg method 2 stderr: {result.stderr[:500]}")
-
-    if output_filepath.exists():
-        output_filepath.unlink()
-
-    # ── METHOD 3: Full re-encode with normalisation (last resort) ──
-    if not auto_mode:
-        console.print("[yellow]  Trying full re-encode (normalises all resolutions/framerates).[/yellow]")
-        response = input("  Continue with full re-encode? (y/N): ").strip().lower()
-        if response != 'y':
-            console.print("[red]✗ Compilation cancelled[/red]")
-            if result.stderr:
-                console.print(f"[dim]Error: {result.stderr[:200]}[/dim]")
-            return None
-    else:
-        console.print("[yellow]  Attempting full re-encode (auto mode)...[/yellow]")
-
-    if output_filepath.exists():
-        output_filepath.unlink()
-
-    m3_timeout = None if auto_mode else 7200
-
-    cmd = [
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "warning",
-        "-f", "concat", "-safe", "0",
-        "-i", str(concat_file),
-        "-vf", (
-            "scale=1920:1080:force_original_aspect_ratio=decrease,"
-            "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black,fps=30"
-        ),
-        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
-        "-threads", "4",
-        "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
-        "-movflags", "+faststart",
-        "-pix_fmt", "yuv420p",
-        str(output_filepath)
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=m3_timeout)
-
-    if result.returncode == 0 and output_filepath.exists() and output_filepath.stat().st_size > 1_000_000:
-        console.print(f"[green]✓ Compilation successful (full re-encode)[/green]")
-        return output_filepath
-
-    console.print("[red]✗ All compilation methods failed[/red]")
-    if result.stderr:
-        logging.error(f"FFmpeg method 3 stderr: {result.stderr[:500]}")
+        logging.error(f"FFmpeg stderr: {result.stderr[:500]}")
         console.print(f"[red]Error: {result.stderr[:300]}[/red]")
+    if output_filepath.exists():
+        output_filepath.unlink()
     return None
 
 
