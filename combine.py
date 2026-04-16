@@ -247,7 +247,7 @@ def download_video(video, download_path, yt_dlp_format=None, retry_attempts=3):
                 "-i", str(raw_file),
                 "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,"
                        "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black,fps=30",
-                "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
                 "-threads", "4",
                 "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
                 "-pix_fmt", "yuv420p",
@@ -430,7 +430,7 @@ def compile_videos(video_files, topic, output_path, auto_mode=False):
         "-vf", "mpdecimate,setpts=N/FRAME_RATE/TB",
         "-vsync", "cfr",
         "-r", "30",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
         "-threads", "4",
         "-c:a", "copy",
         "-movflags", "+faststart",
@@ -473,7 +473,7 @@ def compile_videos(video_files, topic, output_path, auto_mode=False):
             "scale=1920:1080:force_original_aspect_ratio=decrease,"
             "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black,fps=30"
         ),
-        "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
         "-threads", "4",
         "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
         "-movflags", "+faststart",
