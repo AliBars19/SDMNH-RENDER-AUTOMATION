@@ -62,6 +62,7 @@ LOG_FILE = BASE_DIR / 'data' / 'automation.log'
 DB_UPDATE_INTERVAL_DAYS = 7   # Re-scrape YouTube channels every 7 days
 NETWORK_WAIT_SECONDS = 120    # Wait up to 2 min for network on startup
 MAX_RUNS_PER_DAY = 2          # Two uploads per day (morning + evening)
+MAX_RUN_SECONDS = 7200        # Hard 2-hour cap per run — kills the process if exceeded
 
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -329,6 +330,25 @@ def run_setup(cfg: dict):
     print()
 
 
+# ── Watchdog ──────────────────────────────────────────────────────────────────
+
+def _install_watchdog(max_seconds: int = MAX_RUN_SECONDS):
+    """Fire a watchdog thread that SIGKILLs the process if it runs too long."""
+    import threading
+    import signal
+
+    def _kill():
+        logging.error("WATCHDOG: run exceeded %d seconds — killing process tree", max_seconds)
+        try:
+            os.killpg(os.getpgid(os.getpid()), signal.SIGKILL)
+        except Exception:
+            os._exit(124)
+
+    t = threading.Timer(max_seconds, _kill)
+    t.daemon = True
+    t.start()
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -369,7 +389,8 @@ def main():
         return
 
     logging.info('=' * 56)
-    logging.info('SDMNH Automation starting')
+    logging.info('SDMNH Automation starting (hard cap: %ds)', MAX_RUN_SECONDS)
+    _install_watchdog(MAX_RUN_SECONDS)
 
     # ── Force database update ──
     if args.update_db:
