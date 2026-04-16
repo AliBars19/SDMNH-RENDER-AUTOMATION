@@ -218,55 +218,68 @@ def download_video(video, download_path, yt_dlp_format=None, retry_attempts=3):
     output_file = dl / f"{safe_title}_{video.youtube_id}.mp4"
     fmt = yt_dlp_format or "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]/best"
 
-    # Cookies bypass YouTube bot detection on server IPs
-    cookies_path = BASE_DIR / "credentials" / "youtube_cookies.txt"
-    cookies_args = ["--cookies", str(cookies_path)] if cookies_path.exists() else []
+    # Cookies bypass YouTube bot detection on server IPs.
+    # yt-dlp writes back to --cookies file (can get invalidated) — copy to temp per call.
+    cookies_master = BASE_DIR / "credentials" / "youtube_cookies.txt"
+    cookies_args = []
+    cookies_temp = None
+    if cookies_master.exists():
+        import shutil, tempfile
+        fd, tmp = tempfile.mkstemp(suffix=".txt", prefix="ytcookies_")
+        os.close(fd)
+        cookies_temp = Path(tmp)
+        shutil.copy2(cookies_master, cookies_temp)
+        cookies_args = ["--cookies", str(cookies_temp)]
 
-    for attempt in range(retry_attempts):
-        try:
-            dl_cmd = [
-                "yt-dlp",
-                "-f", fmt,
-                "--merge-output-format", "mp4",
-                "-o", str(output_file),
-                "--no-warnings",
-                "--no-progress",
-                "--js-runtimes", "node:/usr/bin/node",
-                *cookies_args,
-                video.url,
-            ]
-            subprocess.run(dl_cmd, check=True, capture_output=True, timeout=1200)
+    try:
+        for attempt in range(retry_attempts):
+            try:
+                dl_cmd = [
+                    "yt-dlp",
+                    "-f", fmt,
+                    "--merge-output-format", "mp4",
+                    "-o", str(output_file),
+                    "--no-warnings",
+                    "--no-progress",
+                    "--js-runtimes", "node:/usr/bin/node",
+                    *cookies_args,
+                    video.url,
+                ]
+                subprocess.run(dl_cmd, check=True, capture_output=True, timeout=1200)
 
-            if not output_file.exists():
-                raise FileNotFoundError(f"yt-dlp did not produce output file for {video.youtube_id}")
+                if not output_file.exists():
+                    raise FileNotFoundError(f"yt-dlp did not produce output file for {video.youtube_id}")
 
-            console.print(f"[green]  ✓ Downloaded[/green]")
-            return output_file
+                console.print(f"[green]  ✓ Downloaded[/green]")
+                return output_file
 
-        except Exception as e:
-            output_file.unlink(missing_ok=True)
-            if isinstance(e, subprocess.CalledProcessError) and e.stderr:
-                stderr = e.stderr.decode(errors="replace").strip()
-                logging.warning("yt-dlp error for %s: %s", video.youtube_id, stderr[-500:])
-                error_msg = stderr.lower()
-            else:
-                error_msg = str(e).lower()
+            except Exception as e:
+                output_file.unlink(missing_ok=True)
+                if isinstance(e, subprocess.CalledProcessError) and e.stderr:
+                    stderr = e.stderr.decode(errors="replace").strip()
+                    logging.warning("yt-dlp error for %s: %s", video.youtube_id, stderr[-500:])
+                    error_msg = stderr.lower()
+                else:
+                    error_msg = str(e).lower()
 
-            if "429" in error_msg or "too many" in error_msg:
-                console.print(f"[yellow]  Rate limited — waiting 20s...[/yellow]")
-                time.sleep(20)
-            elif "403" in error_msg:
-                console.print(f"[yellow]  Forbidden — waiting 10s...[/yellow]")
-                time.sleep(10)
+                if "429" in error_msg or "too many" in error_msg:
+                    console.print(f"[yellow]  Rate limited — waiting 20s...[/yellow]")
+                    time.sleep(20)
+                elif "403" in error_msg:
+                    console.print(f"[yellow]  Forbidden — waiting 10s...[/yellow]")
+                    time.sleep(10)
 
-            if attempt < retry_attempts - 1:
-                console.print(f"[yellow]  Retry {attempt + 2}/{retry_attempts}...[/yellow]")
-                time.sleep(3)
-            else:
-                console.print(f"[red]  Failed: {str(e)[:100]}[/red]")
-                return None
+                if attempt < retry_attempts - 1:
+                    console.print(f"[yellow]  Retry {attempt + 2}/{retry_attempts}...[/yellow]")
+                    time.sleep(3)
+                else:
+                    console.print(f"[red]  Failed: {str(e)[:100]}[/red]")
+                    return None
 
-    return None
+        return None
+    finally:
+        if cookies_temp and cookies_temp.exists():
+            cookies_temp.unlink(missing_ok=True)
 
 
 def download_videos_sequential(videos, download_path):
