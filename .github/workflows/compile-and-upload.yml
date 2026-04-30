@@ -1,0 +1,139 @@
+name: Compile & Upload
+
+on:
+  schedule:
+    - cron: '0 11 * * *'   # 11:00 UTC daily (morning run)
+    - cron: '0 16 * * *'   # 16:00 UTC daily (evening run)
+  workflow_dispatch:        # manual trigger
+
+jobs:
+  compile-and-upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg nodejs
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Fetch database from droplet
+        env:
+          SSH_KEY: ${{ secrets.DROPLET_SSH_KEY }}
+          DROPLET_IP: ${{ secrets.DROPLET_IP }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$DROPLET_IP" >> ~/.ssh/known_hosts
+          mkdir -p data
+          scp root@$DROPLET_IP:/opt/sdmnh/data/videos.db data/videos.db
+          scp root@$DROPLET_IP:/opt/sdmnh/data/last_run.json data/last_run.json
+
+      - name: Check if already ran today
+        id: guard
+        run: |
+          python - <<'EOF'
+          import json, sys
+          from datetime import datetime, timezone
+          today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+          try:
+              state = json.load(open('data/last_run.json'))
+              if state.get('date') == today and len(state.get('runs', [])) >= 2:
+                  print("Already ran twice today — skipping.")
+                  with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                      f.write("skip=true\n")
+                  sys.exit(0)
+          except Exception:
+              pass
+          import os
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write("skip=false\n")
+          EOF
+
+      - name: Select topic & compile
+        id: compile
+        if: steps.guard.outputs.skip != 'true'
+        run: |
+          python - <<'EOF'
+          import json, subprocess, sys, os
+          from pathlib import Path
+
+          sys.path.insert(0, '.')
+          from combine import load_config, run_auto
+          from src.database import Database, Video
+          from automation import select_topic_by_rank, get_todays_failed_topics, get_todays_used_topics
+
+          cfg = load_config()
+
+          # Ensure output dirs exist
+          Path('data/outputs').mkdir(parents=True, exist_ok=True)
+          Path('data/downloads').mkdir(parents=True, exist_ok=True)
+
+          failed = get_todays_failed_topics()
+          used = get_todays_used_topics()
+          skip = list(set(failed + used))
+
+          db = Database(cfg['db_path'])
+          with db.session_scope() as session:
+              topic = select_topic_by_rank(
+                  session, cfg['topics'],
+                  skip_topics=skip,
+                  max_uses_per_week=cfg.get('max_topic_uses_per_week', 2),
+              )
+
+          if not topic:
+              print("No eligible topic found — skipping.")
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write("skip=true\n")
+              sys.exit(0)
+
+          print(f"Selected topic: {topic}")
+
+          output_file, total_seconds, _ = run_auto(
+              topic=topic, max_hours=cfg.get('max_compilation_hours', 8), cfg=cfg,
+          )
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"skip=false\n")
+              f.write(f"topic={topic}\n")
+              f.write(f"output_file={output_file}\n")
+              f.write(f"duration={int(total_seconds)}\n")
+          EOF
+
+      - name: SCP video to droplet & trigger upload
+        if: steps.guard.outputs.skip != 'true' && steps.compile.outputs.skip != 'true'
+        env:
+          DROPLET_IP: ${{ secrets.DROPLET_IP }}
+        run: |
+          TOPIC="${{ steps.compile.outputs.topic }}"
+          OUTPUT_FILE="${{ steps.compile.outputs.output_file }}"
+          DURATION="${{ steps.compile.outputs.duration }}"
+          REMOTE_FILE="/opt/sdmnh/data/outputs/$(basename $OUTPUT_FILE)"
+
+          echo "Uploading $OUTPUT_FILE to droplet..."
+          scp "$OUTPUT_FILE" root@$DROPLET_IP:"$REMOTE_FILE"
+
+          echo "Triggering upload on droplet..."
+          ssh root@$DROPLET_IP "cd /opt/sdmnh && venv/bin/python automation.py \
+            --upload-only '$REMOTE_FILE' \
+            --upload-topic '$TOPIC' \
+            --upload-duration '$DURATION'"
+
+      - name: Sync updated DB back from droplet
+        if: always()
+        env:
+          DROPLET_IP: ${{ secrets.DROPLET_IP }}
+        run: |
+          scp root@$DROPLET_IP:/opt/sdmnh/data/last_run.json data/last_run.json || true

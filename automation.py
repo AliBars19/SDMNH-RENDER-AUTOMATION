@@ -376,6 +376,18 @@ def main():
         '--ephemeral', action='store_true',
         help='Ephemeral mode: skip network wait and YouTube processing wait',
     )
+    parser.add_argument(
+        '--upload-only', type=str, default=None, metavar='VIDEO_FILE',
+        help='Skip download/compile — upload a pre-compiled video file directly',
+    )
+    parser.add_argument(
+        '--upload-topic', type=str, default=None,
+        help='Topic name for --upload-only mode',
+    )
+    parser.add_argument(
+        '--upload-duration', type=int, default=None,
+        help='Duration in seconds for --upload-only mode',
+    )
     args = parser.parse_args()
 
     os.chdir(BASE_DIR)
@@ -419,6 +431,17 @@ def main():
     else:
         logging.info("Database is up to date (refreshed within the last 7 days).")
 
+    # ── Upload-only mode (GitHub Actions pre-compiled video) ──
+    if args.upload_only:
+        video_file = Path(args.upload_only)
+        if not video_file.exists():
+            logging.error(f"Video file not found: {video_file}")
+            sys.exit(1)
+        topic = args.upload_topic or 'general'
+        duration = args.upload_duration or int(video_file.stat().st_size / 1_000_000)
+        run_upload_only(cfg, video_file, topic, duration)
+        return
+
     # ── Select topic ──
     topic = resolve_topic(cfg, args)
     if not topic:
@@ -457,6 +480,64 @@ def resolve_topic(cfg: dict, args) -> str | None:
             skip_topics=skip_today,
             max_uses_per_week=cfg.get('max_topic_uses_per_week', 2),
         )
+
+
+def _extract_frame(video_file: Path, output_path: str, timestamp: str = '00:01:00') -> str | None:
+    """Extract single frame from video file using FFmpeg."""
+    try:
+        subprocess.run(
+            ['ffmpeg', '-y', '-ss', timestamp, '-i', str(video_file),
+             '-vframes', '1', '-q:v', '2', output_path],
+            check=True, capture_output=True,
+        )
+        return output_path if Path(output_path).exists() else None
+    except Exception:
+        return None
+
+
+def run_upload_only(cfg: dict, video_file: Path, topic: str, duration_seconds: int) -> None:
+    """Upload a pre-compiled video (e.g. from GitHub Actions). No download/compile."""
+    logging.info('=' * 56)
+    logging.info('Upload-only mode: %s  topic=%s  duration=%ds', video_file.name, topic, duration_seconds)
+
+    thumb_dir = Path(cfg.get('thumbnail_path', 'data/thumbnails'))
+    thumb_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    thumbnail_path = str(thumb_dir / f'thumb_{timestamp}.jpg')
+    thumb = _extract_frame(video_file, thumbnail_path)
+    if thumb:
+        logging.info('Thumbnail extracted: %s', thumb)
+
+    title = format_title(topic, duration_seconds)
+    yt_cfg = cfg.get('youtube', {})
+    description = format_description(topic, yt_cfg.get('description', ''))
+    tags = build_tags(topic, yt_cfg.get('tags', []))
+    category_id = str(yt_cfg.get('category_id', '24'))
+    privacy_status = yt_cfg.get('privacy_status', 'public')
+
+    logging.info('YouTube title: %s', title)
+
+    try:
+        service = authenticate(yt_cfg['credentials_path'], yt_cfg['token_path'])
+        video_id = upload_video(
+            service=service, video_path=video_file, title=title,
+            description=description, tags=tags,
+            category_id=category_id, privacy_status=privacy_status,
+        )
+        logging.info('Upload successful! video_id=%s', video_id)
+        if thumb:
+            set_thumbnail(service, video_id, thumb)
+        record_run(topic, title, video_id, duration_seconds)
+        max_wait = int(cfg.get('youtube_processing_wait_seconds', 14400))
+        wait_and_delete_when_public(
+            service=service, video_id=video_id, video_path=video_file,
+            poll_interval=60, max_wait_seconds=max_wait, log_fn=logging.info,
+        )
+    except Exception as exc:
+        logging.error('Upload failed: %s', exc)
+
+    logging.info('Upload-only complete.')
+    logging.info('=' * 56)
 
 
 def run_pipeline(cfg: dict, topic: str, ephemeral: bool = False):
