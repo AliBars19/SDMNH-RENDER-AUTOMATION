@@ -45,6 +45,7 @@ sys.path.insert(0, str(BASE_DIR))
 from combine import load_config, run_auto
 from src.database import Database, Video
 from src.youtube_upload import (
+    YouTubeAuthExpiredError,
     authenticate,
     build_tags,
     extract_thumbnail,
@@ -81,6 +82,26 @@ def setup_logging():
     stream_handler.setFormatter(fmt)
 
     logging.basicConfig(level=logging.INFO, handlers=[file_handler, stream_handler])
+
+
+# ── Notifications ─────────────────────────────────────────────────────────────
+
+def _notify(cfg: dict, title: str, message: str, priority: str = "high") -> None:
+    """Send push notification via ntfy.sh. No-op if ntfy_topic not configured."""
+    topic = cfg.get("ntfy_topic", "").strip()
+    if not topic:
+        return
+    try:
+        import urllib.request as ureq
+        req = ureq.Request(
+            f"https://ntfy.sh/{topic}",
+            data=message.encode(),
+            headers={"Title": title, "Priority": priority},
+            method="POST",
+        )
+        ureq.urlopen(req, timeout=10)
+    except Exception as exc:
+        logging.warning("ntfy notification failed: %s", exc)
 
 
 # ── State helpers ─────────────────────────────────────────────────────────────
@@ -321,6 +342,7 @@ def run_setup(cfg: dict):
     service = authenticate(
         cfg['youtube']['credentials_path'],
         cfg['youtube']['token_path'],
+        setup_mode=True,
     )
     print()
     print("✅  Authentication successful!")
@@ -533,8 +555,12 @@ def run_upload_only(cfg: dict, video_file: Path, topic: str, duration_seconds: i
             service=service, video_id=video_id, video_path=video_file,
             poll_interval=60, max_wait_seconds=max_wait, log_fn=logging.info,
         )
+    except YouTubeAuthExpiredError as exc:
+        logging.error('YouTube auth expired: %s', exc)
+        _notify(cfg, "SDMNH: Re-auth needed", str(exc))
     except Exception as exc:
         logging.error('Upload failed: %s', exc)
+        _notify(cfg, "SDMNH: Upload failed", f"topic={topic}\nerror={exc}", priority="default")
 
     logging.info('Upload-only complete.')
     logging.info('=' * 56)
@@ -608,11 +634,15 @@ def run_pipeline(cfg: dict, topic: str, ephemeral: bool = False):
                     "Thumbnail upload failed. Make sure your channel is verified at "
                     "https://www.youtube.com/verify"
                 )
+    except YouTubeAuthExpiredError as exc:
+        logging.error("YouTube auth expired: %s", exc)
+        _notify(cfg, "SDMNH: Re-auth needed", str(exc))
     except FileNotFoundError as exc:
         logging.error(str(exc))
         logging.error("Run:  python automation.py --setup  to authenticate.")
     except Exception as exc:
-        logging.error(f"YouTube upload failed: {exc}")
+        logging.error("YouTube upload failed: %s", exc)
+        _notify(cfg, "SDMNH: Upload failed", f"topic={topic}\nerror={exc}", priority="default")
 
     # ── Record run ──
     record_run(topic, title, video_id, total_seconds)

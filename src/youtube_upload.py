@@ -23,12 +23,17 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+import google.auth.exceptions
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from googleapiclient.errors import HttpError
+
+
+class YouTubeAuthExpiredError(Exception):
+    """Raised when the OAuth token is missing or has been revoked."""
 
 import time
 
@@ -128,14 +133,15 @@ TOPIC_TAGS = {
 
 # ── Authentication ─────────────────────────────────────────────────────────────
 
-def authenticate(credentials_path: str, token_path: str):
+def authenticate(credentials_path: str, token_path: str, setup_mode: bool = False):
     """
     Authenticate with the YouTube Data API using OAuth 2.0.
 
-    On first call a browser window opens for user consent (or binds to
-    0.0.0.0:8080 when SDMNH_HEADLESS is set, for SSH tunnel auth).
+    In setup_mode=True a browser window opens for user consent (or binds to
+    0.0.0.0:8081 when SDMNH_HEADLESS is set, for SSH tunnel auth).
     Subsequent calls reuse the cached token from token_path.
 
+    Raises YouTubeAuthExpiredError if the token is invalid and setup_mode is False.
     Returns a googleapiclient Resource object ready to make API calls.
     """
     creds = None
@@ -145,7 +151,22 @@ def authenticate(credentials_path: str, token_path: str):
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
+            try:
+                creds.refresh(Request())
+            except google.auth.exceptions.RefreshError as exc:
+                # Token revoked (invalid_grant) — delete stale file, surface clearly
+                Path(token_path).unlink(missing_ok=True)
+                raise YouTubeAuthExpiredError(
+                    "YouTube OAuth token revoked (invalid_grant). "
+                    "Re-auth via SSH tunnel:\n"
+                    "  ssh -L 8081:localhost:8081 root@138.68.186.172\n"
+                    "  SDMNH_HEADLESS=1 python automation.py --setup"
+                ) from exc
+        elif not setup_mode:
+            raise YouTubeAuthExpiredError(
+                "No valid YouTube token found. "
+                "Run:  SDMNH_HEADLESS=1 python automation.py --setup"
+            )
         else:
             if not os.path.exists(credentials_path):
                 raise FileNotFoundError(
@@ -156,8 +177,8 @@ def authenticate(credentials_path: str, token_path: str):
             flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
             if os.environ.get("SDMNH_HEADLESS"):
                 # Headless server: bind to all interfaces so an SSH tunnel can reach it
-                # ssh -L 8080:localhost:8080 root@<server>
-                creds = flow.run_local_server(bind_addr="0.0.0.0", port=8080)
+                # ssh -L 8081:localhost:8081 root@<server>
+                creds = flow.run_local_server(bind_addr="0.0.0.0", port=8081)
             else:
                 creds = flow.run_local_server(port=0)
 
