@@ -178,7 +178,7 @@ def authenticate(credentials_path: str, token_path: str, setup_mode: bool = Fals
             if os.environ.get("SDMNH_HEADLESS"):
                 # Headless server: bind to all interfaces so an SSH tunnel can reach it
                 # ssh -L 8081:localhost:8081 root@<server>
-                creds = flow.run_local_server(bind_addr="0.0.0.0", port=8081)
+                creds = flow.run_local_server(bind_addr="0.0.0.0", port=8081, open_browser=False)
             else:
                 creds = flow.run_local_server(port=0)
 
