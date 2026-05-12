@@ -73,15 +73,22 @@ def setup_logging():
     LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
     fmt = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
 
+    handlers: list = []
+
     file_handler = RotatingFileHandler(
         LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding='utf-8'
     )
     file_handler.setFormatter(fmt)
+    handlers.append(file_handler)
 
-    stream_handler = logging.StreamHandler(sys.stdout)
-    stream_handler.setFormatter(fmt)
+    # Only add stdout handler in interactive sessions — systemd already redirects
+    # stdout to the log file, so adding a StreamHandler there would double-write.
+    if sys.stdout.isatty():
+        stream_handler = logging.StreamHandler(sys.stdout)
+        stream_handler.setFormatter(fmt)
+        handlers.append(stream_handler)
 
-    logging.basicConfig(level=logging.INFO, handlers=[file_handler, stream_handler])
+    logging.basicConfig(level=logging.INFO, handlers=handlers)
 
 
 # ── Notifications ─────────────────────────────────────────────────────────────

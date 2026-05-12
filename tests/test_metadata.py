@@ -30,7 +30,7 @@ class TestFormatTitle:
 
     def test_rounds_hours(self, display_names):
         result = format_title("mukbang", 5400, display_names)  # 1.5 hours
-        assert result == "SIDEMEN MUKBANG - 2 HOUR SPECIAL"
+        assert result == "SIDEMEN MUKBANG - 1.5 HOUR SPECIAL"
 
     def test_minimum_one_hour(self, display_names):
         result = format_title("quiz", 600, display_names)  # 10 minutes

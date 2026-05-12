@@ -118,11 +118,12 @@ def format_title(
     Return the YouTube video title from a config-driven template.
 
     title_format supports {topic} and {hours} placeholders. Hours are rounded
-    to the nearest integer (minimum 1). Unknown topics fall back to upper-cased
-    topic key.
+    to the nearest 0.5 (minimum 1). "3.5" is displayed as "3.5", "3.0" as "3".
+    Unknown topics fall back to upper-cased topic key.
     """
     topic_display = display_names.get(topic, topic.replace('_', ' ').upper())
-    hours = max(1, round(duration_seconds / 3600))
+    hours_raw = max(1.0, round(duration_seconds / 3600 * 2) / 2)
+    hours = f"{hours_raw:g}"
     return title_format.format(topic=topic_display, hours=hours)
 
 
