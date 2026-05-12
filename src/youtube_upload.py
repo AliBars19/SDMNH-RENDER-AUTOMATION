@@ -43,92 +43,8 @@ SCOPES = [
     'https://www.googleapis.com/auth/youtube',
 ]
 
-# Human-readable display names for each topic key
-TOPIC_DISPLAY_NAMES = {
-    'among_us':             'AMONG US',
-    'try_not_to_laugh':     'TRY NOT TO LAUGH',
-    'the_price_is_right':   'THE PRICE IS RIGHT',
-    'mukbang':              'MUKBANG',
-    'five_second_challenge':'5 SECOND CHALLENGE',
-    'hide_and_seek':        'HIDE AND SEEK',
-    'mafia':                'MAFIA',
-    'guess_the_link':       'GUESS THE LINK',
-    'guess_the_lyric':      'GUESS THE LYRIC',
-    'guessmoji':            'GUESSMOJI',
-    'geoguessr':            'GEOGUESSR',
-    'sidemen_sunday':       'SIDEMEN SUNDAY',
-    'holiday':              'HOLIDAY',
-    'road_trip':            'ROAD TRIP',
-    'cooking':              'COOKING CHALLENGE',
-    'dating':               'DATING',
-    'football':             'FOOTBALL',
-    'quiz':                 'QUIZ',
-    'charity':              'CHARITY',
-    'would_you_rather':     'WOULD YOU RATHER',
-    'fashion':              'FASHION',
-    'ultimate':             'ULTIMATE',
-    'tasting':              'TASTING',
-    'golf':                 'GOLF',
-    'drawing':              'DRAWING',
-    'party_games':          'PARTY GAMES',
-    'react':                'REACTIONS',
-    'ranking':              'RANKING',
-    'guessing':             'GUESSING GAME',
-    'rating':               'RATING',
-    '20_vs_1':              '20 VS 1',
-    'think_the_same':       'THINK THE SAME',
-    'crossbar':             'CROSSBAR CHALLENGE',
-    'podcast':              'PODCAST',
-    'survival':             'SURVIVAL',
-    'mystery':              'MYSTERY',
-    'money':                'MONEY CHALLENGE',
-    'gaming':               'GAMING',
-    'sports':               'SPORTS',
-    'general':              'COMPILATION',
-}
-
-# Extra topic-specific tags appended on top of the base tag list
-TOPIC_TAGS = {
-    'among_us':             ['among us', 'among us sidemen'],
-    'try_not_to_laugh':     ['try not to laugh', 'tntl', 'comedy'],
-    'the_price_is_right':   ['price is right', 'game show', 'sidemen game'],
-    'mukbang':              ['mukbang', 'eating', 'food'],
-    'five_second_challenge':['5 second challenge', 'challenge'],
-    'hide_and_seek':        ['hide and seek', 'challenge'],
-    'mafia':                ['mafia', 'social deduction'],
-    'guess_the_link':       ['guess the link', 'sidemen game'],
-    'guess_the_lyric':      ['guess the lyric', 'music challenge'],
-    'guessmoji':            ['guessmoji', 'emoji challenge'],
-    'sidemen_sunday':       ['sidemen sunday', 'weekly'],
-    'holiday':              ['holiday', 'vacation', 'travel', 'vlog'],
-    'road_trip':            ['road trip', 'travel', 'vlog'],
-    'cooking':              ['cooking', 'food challenge', 'masterchef'],
-    'dating':               ['dating', 'tinder', 'love', 'romance'],
-    'football':             ['football', 'soccer', 'sidemen fc'],
-    'quiz':                 ['quiz', 'trivia', 'knowledge'],
-    'charity':              ['charity', 'fundraiser', 'good cause'],
-    'would_you_rather':     ['would you rather', 'wyr'],
-    'fashion':              ['fashion', 'clothing', 'outfit'],
-    'ultimate':             ['ultimate', 'extreme'],
-    'tasting':              ['tasting', 'taste test', 'food'],
-    'geoguessr':            ['geoguessr', 'geography', 'guessing game'],
-    'golf':                 ['golf', 'mini golf', 'sidemen golf'],
-    'drawing':              ['drawing', 'pictionary', 'art challenge'],
-    'party_games':          ['party games', 'quiplash', 'jackbox', 'gartic phone'],
-    'react':                ['reaction', 'react', 'commentary'],
-    'ranking':              ['ranking', 'tier list', 'sidemen rank'],
-    'guessing':             ['guessing', 'guess the', 'guessing game'],
-    'rating':               ['rating', 'rate', 'brutally rate'],
-    '20_vs_1':              ['20 vs 1', '20 women vs', '20 men vs'],
-    'think_the_same':       ['think the same', 'same answer'],
-    'crossbar':             ['crossbar', 'crossbar challenge'],
-    'podcast':              ['podcast', 'sidemen podcast'],
-    'survival':             ['survival', '24 hours', 'overnight', 'challenge'],
-    'mystery':              ['mystery', 'mystery box', 'mystery challenge'],
-    'money':                ['money', 'money challenge', 'expensive'],
-    'gaming':               ['gaming', 'gta', 'fifa', 'fortnite', 'minecraft'],
-    'sports':               ['sports', 'boxing', 'olympics', 'athletics'],
-}
+# Default title format used if youtube.title_format is missing from config.
+DEFAULT_TITLE_FORMAT = "SIDEMEN {topic} - {hours} HOUR SPECIAL"
 
 
 # ── Authentication ─────────────────────────────────────────────────────────────
@@ -192,29 +108,43 @@ def authenticate(credentials_path: str, token_path: str, setup_mode: bool = Fals
 
 # ── Title & metadata helpers ───────────────────────────────────────────────────
 
-def format_title(topic: str, duration_seconds: float) -> str:
+def format_title(
+    topic: str,
+    duration_seconds: float,
+    display_names: dict[str, str],
+    title_format: str = DEFAULT_TITLE_FORMAT,
+) -> str:
     """
-    Return the YouTube video title.
-    Format: SIDEMEN {TOPIC} - X HOUR SPECIAL
+    Return the YouTube video title from a config-driven template.
 
-    Hours are rounded to the nearest integer (minimum 1).
+    title_format supports {topic} and {hours} placeholders. Hours are rounded
+    to the nearest integer (minimum 1). Unknown topics fall back to upper-cased
+    topic key.
     """
-    topic_display = TOPIC_DISPLAY_NAMES.get(topic, topic.replace('_', ' ').upper())
+    topic_display = display_names.get(topic, topic.replace('_', ' ').upper())
     hours = max(1, round(duration_seconds / 3600))
-    return f"SIDEMEN {topic_display} - {hours} HOUR SPECIAL"
+    return title_format.format(topic=topic_display, hours=hours)
 
 
-def format_description(topic: str, description_template: str) -> str:
+def format_description(
+    topic: str,
+    description_template: str,
+    display_names: dict[str, str],
+) -> str:
     """Fill in the description template with topic-specific values."""
-    topic_display = TOPIC_DISPLAY_NAMES.get(topic, topic.replace('_', ' ').title())
+    topic_display = display_names.get(topic, topic.replace('_', ' ').title())
     topic_tag = topic.replace('_', '').replace(' ', '')
     return description_template.format(topic=topic_display, topic_tag=topic_tag)
 
 
-def build_tags(topic: str, base_tags: list) -> list:
-    """Combine base tags from config with topic-specific tags. Max 500 tags."""
+def build_tags(
+    topic: str,
+    base_tags: list[str],
+    topic_tags: dict[str, list[str]],
+) -> list[str]:
+    """Combine base tags with per-topic tags (deduplicated). Max 500."""
     topic_word = topic.replace('_', ' ')
-    extra = TOPIC_TAGS.get(topic, [topic_word])
+    extra = topic_tags.get(topic, [topic_word])
 
     all_tags = list(base_tags)
     for tag in extra:

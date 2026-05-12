@@ -530,10 +530,12 @@ def run_upload_only(cfg: dict, video_file: Path, topic: str, duration_seconds: i
     if thumb:
         logging.info('Thumbnail extracted: %s', thumb)
 
-    title = format_title(topic, duration_seconds)
     yt_cfg = cfg.get('youtube', {})
-    description = format_description(topic, yt_cfg.get('description', ''))
-    tags = build_tags(topic, yt_cfg.get('tags', []))
+    display_names = yt_cfg.get('topic_display_names', {})
+    title_format = yt_cfg.get('title_format', 'SIDEMEN {topic} - {hours} HOUR SPECIAL')
+    title = format_title(topic, duration_seconds, display_names, title_format)
+    description = format_description(topic, yt_cfg.get('description', ''), display_names)
+    tags = build_tags(topic, yt_cfg.get('tags', []), yt_cfg.get('topic_tags', {}))
     category_id = str(yt_cfg.get('category_id', '24'))
     privacy_status = yt_cfg.get('privacy_status', 'public')
 
@@ -602,10 +604,12 @@ def run_pipeline(cfg: dict, topic: str, ephemeral: bool = False):
         logging.warning("Could not extract thumbnail — upload will proceed without one.")
 
     # ── Build YouTube metadata ──
-    title = format_title(topic, total_seconds)
     yt_cfg = cfg.get('youtube', {})
-    description = format_description(topic, yt_cfg.get('description', ''))
-    tags = build_tags(topic, yt_cfg.get('tags', []))
+    display_names = yt_cfg.get('topic_display_names', {})
+    title_format = yt_cfg.get('title_format', 'SIDEMEN {topic} - {hours} HOUR SPECIAL')
+    title = format_title(topic, total_seconds, display_names, title_format)
+    description = format_description(topic, yt_cfg.get('description', ''), display_names)
+    tags = build_tags(topic, yt_cfg.get('tags', []), yt_cfg.get('topic_tags', {}))
     category_id = str(yt_cfg.get('category_id', '24'))
     privacy_status = yt_cfg.get('privacy_status', 'public')
 

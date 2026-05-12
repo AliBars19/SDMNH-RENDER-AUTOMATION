@@ -242,3 +242,91 @@ youtube:
     - "more sidemen"
     - "best of sidemen"
     - "sidemen highlights"
+
+  # Title template — supports {topic} and {hours} placeholders
+  title_format: "SIDEMEN {topic} - {hours} HOUR SPECIAL"
+
+  # Per-topic uppercase display names (used in titles and description)
+  topic_display_names:
+    among_us:              "AMONG US"
+    try_not_to_laugh:      "TRY NOT TO LAUGH"
+    the_price_is_right:    "THE PRICE IS RIGHT"
+    mukbang:               "MUKBANG"
+    five_second_challenge: "5 SECOND CHALLENGE"
+    hide_and_seek:         "HIDE AND SEEK"
+    mafia:                 "MAFIA"
+    guess_the_link:        "GUESS THE LINK"
+    guess_the_lyric:       "GUESS THE LYRIC"
+    guessmoji:             "GUESSMOJI"
+    geoguessr:             "GEOGUESSR"
+    sidemen_sunday:        "SIDEMEN SUNDAY"
+    holiday:               "HOLIDAY"
+    road_trip:             "ROAD TRIP"
+    cooking:               "COOKING CHALLENGE"
+    dating:                "DATING"
+    football:              "FOOTBALL"
+    quiz:                  "QUIZ"
+    charity:               "CHARITY"
+    would_you_rather:      "WOULD YOU RATHER"
+    fashion:               "FASHION"
+    ultimate:              "ULTIMATE"
+    tasting:               "TASTING"
+    golf:                  "GOLF"
+    drawing:               "DRAWING"
+    party_games:           "PARTY GAMES"
+    react:                 "REACTIONS"
+    ranking:               "RANKING"
+    guessing:              "GUESSING GAME"
+    rating:                "RATING"
+    "20_vs_1":             "20 VS 1"
+    think_the_same:        "THINK THE SAME"
+    crossbar:              "CROSSBAR CHALLENGE"
+    podcast:               "PODCAST"
+    survival:              "SURVIVAL"
+    mystery:               "MYSTERY"
+    money:                 "MONEY CHALLENGE"
+    gaming:                "GAMING"
+    sports:                "SPORTS"
+    general:               "COMPILATION"
+
+  # Per-topic extra tags (merged onto base tags above; deduplicated; max 500 total)
+  topic_tags:
+    among_us:              ["among us", "among us sidemen"]
+    try_not_to_laugh:      ["try not to laugh", "tntl", "comedy"]
+    the_price_is_right:    ["price is right", "game show", "sidemen game"]
+    mukbang:               ["mukbang", "eating", "food"]
+    five_second_challenge: ["5 second challenge", "challenge"]
+    hide_and_seek:         ["hide and seek", "challenge"]
+    mafia:                 ["mafia", "social deduction"]
+    guess_the_link:        ["guess the link", "sidemen game"]
+    guess_the_lyric:       ["guess the lyric", "music challenge"]
+    guessmoji:             ["guessmoji", "emoji challenge"]
+    sidemen_sunday:        ["sidemen sunday", "weekly"]
+    holiday:               ["holiday", "vacation", "travel", "vlog"]
+    road_trip:             ["road trip", "travel", "vlog"]
+    cooking:               ["cooking", "food challenge", "masterchef"]
+    dating:                ["dating", "tinder", "love", "romance"]
+    football:              ["football", "soccer", "sidemen fc"]
+    quiz:                  ["quiz", "trivia", "knowledge"]
+    charity:               ["charity", "fundraiser", "good cause"]
+    would_you_rather:      ["would you rather", "wyr"]
+    fashion:               ["fashion", "clothing", "outfit"]
+    ultimate:              ["ultimate", "extreme"]
+    tasting:               ["tasting", "taste test", "food"]
+    geoguessr:             ["geoguessr", "geography", "guessing game"]
+    golf:                  ["golf", "mini golf", "sidemen golf"]
+    drawing:               ["drawing", "pictionary", "art challenge"]
+    party_games:           ["party games", "quiplash", "jackbox", "gartic phone"]
+    react:                 ["reaction", "react", "commentary"]
+    ranking:               ["ranking", "tier list", "sidemen rank"]
+    guessing:              ["guessing", "guess the", "guessing game"]
+    rating:                ["rating", "rate", "brutally rate"]
+    "20_vs_1":             ["20 vs 1", "20 women vs", "20 men vs"]
+    think_the_same:        ["think the same", "same answer"]
+    crossbar:              ["crossbar", "crossbar challenge"]
+    podcast:               ["podcast", "sidemen podcast"]
+    survival:              ["survival", "24 hours", "overnight", "challenge"]
+    mystery:               ["mystery", "mystery box", "mystery challenge"]
+    money:                 ["money", "money challenge", "expensive"]
+    gaming:                ["gaming", "gta", "fifa", "fortnite", "minecraft"]
+    sports:                ["sports", "boxing", "olympics", "athletics"]
