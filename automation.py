@@ -205,14 +205,15 @@ def wait_for_network(max_seconds: int = NETWORK_WAIT_SECONDS) -> bool:
     """Block until a TCP connection to Google DNS succeeds or timeout expires."""
     deadline = time.time() + max_seconds
     while time.time() < deadline:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.settimeout(3)
             s.connect(('8.8.8.8', 53))
-            s.close()
             return True
         except (socket.error, OSError):
             time.sleep(5)
+        finally:
+            s.close()
     return False
 
 

@@ -127,6 +127,11 @@ class TestScrapeChannel:
         result = update_db.scrape_channel("https://youtube.com/@Sidemen")
         assert result == []
 
+    def test_nonzero_exit_code_returns_empty(self, monkeypatch):
+        self._fake_run([], monkeypatch, returncode=1)
+        result = update_db.scrape_channel("https://youtube.com/@Sidemen")
+        assert result == []
+
 
 # ── assign_topic (additional edge cases not in test_topic_assignment.py) ────────
 

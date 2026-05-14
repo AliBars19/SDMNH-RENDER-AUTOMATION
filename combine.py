@@ -13,7 +13,7 @@ from rich.console import Console
 from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn
 import time
 
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 
 from src.database import Database, Video, Compilation, compilation_videos
 
@@ -404,7 +404,6 @@ def filter_compatible_videos(
         return dict(video_files)
 
     # Find the most common codec
-    from collections import Counter
     counts = Counter(codec_map.values())
     majority_codec, _ = counts.most_common(1)[0]
 
@@ -526,97 +525,95 @@ def run_auto(topic, max_hours=12, cfg=None):
     db = Database(cfg['db_path'])
     session = db.get_session()
 
-    os.makedirs(cfg['download_path'], exist_ok=True)
-    os.makedirs(cfg['output_path'], exist_ok=True)
-
-    # ── Sweep leftover temp files from crashed previous runs ──
-    cleanup_stale_temps(cfg['download_path'])
-
-    max_duration_seconds = int(max_hours * 3600)
-    cooldown_days = cfg.get('cooldown_days', 30)
-
-    # ── Select videos within the 12-hour cap ──
-    console.print(f"\n[bold cyan]Topic:[/bold cyan] {topic}")
-    videos = select_videos_within_duration(session, topic, max_duration_seconds, cooldown_days)
-
-    if not videos:
-        session.close()
-        raise Exception(f"No videos found for topic '{topic}' in the database. Run update_db.py first.")
-
-    console.print(f"[green]✓ Selected {len(videos)} videos[/green]")
-
-    # ── Disk space pre-check ──
-    # Estimate: ~500 MB/hour of source video after 1080p normalization,
-    # plus the compiled output is roughly the same size.  Factor of 2.5 for safety.
-    import shutil
-    est_total_seconds = sum((v.duration or 3600) for v in videos)
-    est_gb_needed = (est_total_seconds / 3600) * 0.5 * 2.5
-    disk = shutil.disk_usage(cfg['download_path'])
-    free_gb = disk.free / (1024 ** 3)
-    if free_gb < est_gb_needed:
-        session.close()
-        raise Exception(
-            f"Not enough disk space: ~{est_gb_needed:.1f} GB needed, "
-            f"{free_gb:.1f} GB free. Free up space or reduce max_compilation_hours."
-        )
-    console.print(f"[dim]  Disk space OK: ~{est_gb_needed:.1f} GB needed, {free_gb:.1f} GB free[/dim]")
-
-    # ── Download (parallel in auto mode) ──
-    max_workers = cfg.get('max_concurrent_downloads', 3)
-    video_files = download_videos_parallel(
-        videos, cfg['download_path'], max_workers=max_workers,
-    )
-
-    if not video_files:
-        session.close()
-        raise Exception("No videos downloaded — check network and OAuth credentials.")
-
-    console.print(f"[green]Downloaded {len(video_files)}/{len(videos)} videos[/green]")
-
-    # ── Sort newest-first so the compilation opens with recent content ──
-    video_files = _sort_by_upload_date(video_files, videos)
-
-    # ── Compile (auto mode — no interactive prompts) ──
-    output_file = compile_videos(video_files, topic, cfg['output_path'], auto_mode=True)
-
-    if not output_file:
-        cleanup_downloads(cfg['download_path'])
-        session.close()
-        raise Exception("Compilation failed for all methods.")
-
-    # ── Get actual compiled duration ──
-    total_seconds = get_video_duration(output_file)
-    if total_seconds == 0:
-        # Fall back to summing DB durations
-        total_seconds = sum(
-            (v.duration or 3600) for v in videos if v.id in video_files
-        )
-
-    # Capture youtube_ids as plain strings while the session is still open.
-    # After session.commit() SQLAlchemy expires all ORM attributes, and accessing
-    # them on detached objects outside this function raises DetachedInstanceError.
-    selected_youtube_ids = [v.youtube_id for v in videos]
-
-    # ── Record compilation in database ──
     try:
-        compilation = Compilation(
-            topic=topic,
-            filename=output_file.name,
-            video_count=len(video_files)
-        )
-        session.add(compilation)
-        session.flush()
+        os.makedirs(cfg['download_path'], exist_ok=True)
+        os.makedirs(cfg['output_path'], exist_ok=True)
 
-        for video_id in video_files.keys():
-            stmt = compilation_videos.insert().values(
-                compilation_id=compilation.id,
-                video_id=video_id
+        # ── Sweep leftover temp files from crashed previous runs ──
+        cleanup_stale_temps(cfg['download_path'])
+
+        max_duration_seconds = int(max_hours * 3600)
+        cooldown_days = cfg.get('cooldown_days', 30)
+
+        # ── Select videos within the 12-hour cap ──
+        console.print(f"\n[bold cyan]Topic:[/bold cyan] {topic}")
+        videos = select_videos_within_duration(session, topic, max_duration_seconds, cooldown_days)
+
+        if not videos:
+            raise Exception(f"No videos found for topic '{topic}' in the database. Run update_db.py first.")
+
+        console.print(f"[green]✓ Selected {len(videos)} videos[/green]")
+
+        # ── Disk space pre-check ──
+        # Estimate: ~500 MB/hour of source video after 1080p normalization,
+        # plus the compiled output is roughly the same size.  Factor of 2.5 for safety.
+        import shutil
+        est_total_seconds = sum((v.duration or 3600) for v in videos)
+        est_gb_needed = (est_total_seconds / 3600) * 0.5 * 2.5
+        disk = shutil.disk_usage(cfg['download_path'])
+        free_gb = disk.free / (1024 ** 3)
+        if free_gb < est_gb_needed:
+            raise Exception(
+                f"Not enough disk space: ~{est_gb_needed:.1f} GB needed, "
+                f"{free_gb:.1f} GB free. Free up space or reduce max_compilation_hours."
             )
-            session.execute(stmt)
+        console.print(f"[dim]  Disk space OK: ~{est_gb_needed:.1f} GB needed, {free_gb:.1f} GB free[/dim]")
 
-        session.commit()
-    except Exception as e:
-        console.print(f"[yellow]Warning: could not save compilation record: {e}[/yellow]")
+        # ── Download (parallel in auto mode) ──
+        max_workers = cfg.get('max_concurrent_downloads', 3)
+        video_files = download_videos_parallel(
+            videos, cfg['download_path'], max_workers=max_workers,
+        )
+
+        if not video_files:
+            raise Exception("No videos downloaded — check network and OAuth credentials.")
+
+        console.print(f"[green]Downloaded {len(video_files)}/{len(videos)} videos[/green]")
+
+        # ── Sort newest-first so the compilation opens with recent content ──
+        video_files = _sort_by_upload_date(video_files, videos)
+
+        # ── Compile (auto mode — no interactive prompts) ──
+        output_file = compile_videos(video_files, topic, cfg['output_path'], auto_mode=True)
+
+        if not output_file:
+            cleanup_downloads(cfg['download_path'])
+            raise Exception("Compilation failed for all methods.")
+
+        # ── Get actual compiled duration ──
+        total_seconds = get_video_duration(output_file)
+        if total_seconds == 0:
+            # Fall back to summing DB durations
+            total_seconds = sum(
+                (v.duration or 3600) for v in videos if v.id in video_files
+            )
+
+        # Capture youtube_ids as plain strings while the session is still open.
+        # After session.commit() SQLAlchemy expires all ORM attributes, and accessing
+        # them on detached objects outside this function raises DetachedInstanceError.
+        selected_youtube_ids = [v.youtube_id for v in videos]
+
+        # ── Record compilation in database ──
+        try:
+            compilation = Compilation(
+                topic=topic,
+                filename=output_file.name,
+                video_count=len(video_files)
+            )
+            session.add(compilation)
+            session.flush()
+
+            for video_id in video_files.keys():
+                stmt = compilation_videos.insert().values(
+                    compilation_id=compilation.id,
+                    video_id=video_id
+                )
+                session.execute(stmt)
+
+            session.commit()
+        except Exception as e:
+            console.print(f"[yellow]Warning: could not save compilation record: {e}[/yellow]")
+
     finally:
         session.close()
 
