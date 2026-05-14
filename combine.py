@@ -353,10 +353,82 @@ def download_videos_parallel(videos, download_path, max_workers=3):
     return downloaded
 
 
+def get_video_audio_codec(video_path: Path) -> str | None:
+    """Return the audio codec name for a video file via ffprobe, or None on failure."""
+    try:
+        cmd = [
+            'ffprobe', '-v', 'quiet', '-print_format', 'json',
+            '-show_streams', '-select_streams', 'a:0', str(video_path)
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        data = json.loads(result.stdout)
+        streams = data.get('streams', [])
+        if streams:
+            return streams[0].get('codec_name')
+    except Exception:
+        pass
+    return None
+
+
+def filter_compatible_videos(
+    video_files: dict,
+    logger: logging.Logger | None = None,
+) -> dict:
+    """
+    Drop videos whose audio codec doesn't match the majority codec.
+
+    Uses ffprobe to detect the audio codec of each file. Files where ffprobe
+    fails are kept (can't know they're incompatible). Logs a WARNING for every
+    dropped file but does not raise.
+
+    Returns a new dict preserving insertion order of compatible files.
+    """
+    _log = logger or logging.getLogger(__name__)
+
+    if len(video_files) <= 1:
+        return dict(video_files)
+
+    codec_map: dict[str, str] = {}
+    for vid_id, path in video_files.items():
+        codec = get_video_audio_codec(path)
+        if codec:
+            codec_map[vid_id] = codec
+
+    if not codec_map:
+        return dict(video_files)
+
+    # Find the most common codec
+    from collections import Counter
+    counts = Counter(codec_map.values())
+    majority_codec, _ = counts.most_common(1)[0]
+
+    compatible = {}
+    for vid_id, path in video_files.items():
+        codec = codec_map.get(vid_id)
+        if codec is None or codec == majority_codec:
+            compatible[vid_id] = path
+        else:
+            _log.warning(
+                "Skipping incompatible video %s (audio codec '%s' ≠ majority '%s'): %s",
+                vid_id, codec, majority_codec, path.name,
+            )
+            console.print(
+                f"[yellow]  Skipping incompatible audio ({codec} ≠ {majority_codec}): "
+                f"{path.name}[/yellow]"
+            )
+
+    return compatible
+
+
 def compile_videos(video_files, topic, output_path, auto_mode=False):
     """Concat downloaded videos via FFmpeg stream-copy (no re-encode, ever)."""
     if not video_files:
         console.print("[red]No videos to compile[/red]")
+        return None
+
+    video_files = filter_compatible_videos(video_files)
+    if not video_files:
+        console.print("[red]No compatible videos remain after codec filter[/red]")
         return None
 
     concat_file = Path(output_path) / "concat_list.txt"
