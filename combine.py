@@ -18,7 +18,7 @@ from collections import OrderedDict
 from src.database import Database, Video, Compilation, compilation_videos
 
 BASE_DIR = Path(__file__).parent.resolve()
-if sys.stdout.encoding and sys.stdout.encoding.lower() not in ('utf-8', 'utf8'):
+if sys.stdout.encoding and sys.stdout.encoding.lower() not in ('utf-8', 'utf8'):  # pragma: no cover
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 console = Console()
 
@@ -26,11 +26,17 @@ console = Console()
 def _sort_by_upload_date(video_files, videos):
     """Return video_files ordered newest-first using upload_date from the DB rows."""
     date_lookup = {v.id: v.upload_date for v in videos}
-    sorted_ids = sorted(
-        video_files.keys(),
-        key=lambda vid: date_lookup.get(vid) or datetime.min,
-        reverse=True,
-    )
+
+    def _parse_date(vid):
+        date_str = date_lookup.get(vid)
+        if not date_str:
+            return datetime.min
+        try:
+            return datetime.strptime(date_str, "%Y%m%d")
+        except ValueError:
+            return datetime.min
+
+    sorted_ids = sorted(video_files.keys(), key=_parse_date, reverse=True)
     return OrderedDict((vid, video_files[vid]) for vid in sorted_ids)
 
 
@@ -699,5 +705,5 @@ def main():
     console.print(f"[green]Compilation saved: {output_file}[/green]\n")
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()

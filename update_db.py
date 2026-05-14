@@ -173,5 +173,5 @@ def main():
     console.print(f"[green] Total: {total} videos ({general_left} still in general)[/green]\n")
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()

@@ -366,7 +366,7 @@ def _install_watchdog(max_seconds: int = MAX_RUN_SECONDS):
     import threading
     import signal
 
-    def _kill():
+    def _kill():  # pragma: no cover
         logging.error("WATCHDOG: run exceeded %d seconds — killing process tree", max_seconds)
         try:
             os.killpg(os.getpgid(os.getpid()), signal.SIGKILL)
@@ -537,7 +537,38 @@ def _extract_frame(
         return None
 
 
-def run_upload_only(cfg: dict, video_file: Path, topic: str, duration_seconds: int) -> None:
+def _try_thumbnail(
+    source_ids: list[str],
+    thumbnail_path: str,
+    compiled_video: Path,
+    total_seconds: float,
+    *,
+    thumbnail_fetcher=None,
+) -> str | None:
+    """
+    Try to get a thumbnail for the compilation.
+
+    Strategy:
+      1. Download the source video's YouTube thumbnail via thumbnail_fetcher.
+      2. If that fails, extract a frame from the compiled video at the midpoint.
+
+    thumbnail_fetcher defaults to extract_thumbnail and can be overridden for tests.
+    """
+    fetcher = thumbnail_fetcher if thumbnail_fetcher is not None else extract_thumbnail
+    thumb = fetcher(source_ids, thumbnail_path)
+    if thumb:
+        logging.info("Thumbnail: source image from video %s", source_ids[0] if source_ids else "?")
+        return thumb
+    midpoint_ts = _seconds_to_timestamp(total_seconds / 2)
+    thumb = _extract_frame(compiled_video, thumbnail_path, timestamp=midpoint_ts)
+    if thumb:
+        logging.info("Thumbnail: compiled-video frame at %s (source unavailable)", midpoint_ts)
+    else:
+        logging.warning("Could not extract thumbnail — upload will proceed without one.")
+    return thumb
+
+
+def run_upload_only(cfg: dict, video_file: Path, topic: str, duration_seconds: int, *, service=None) -> None:
     """Upload a pre-compiled video (e.g. from GitHub Actions). No download/compile."""
     logging.info('=' * 56)
     logging.info('Upload-only mode: %s  topic=%s  duration=%ds', video_file.name, topic, duration_seconds)
@@ -546,9 +577,10 @@ def run_upload_only(cfg: dict, video_file: Path, topic: str, duration_seconds: i
     thumb_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     thumbnail_path = str(thumb_dir / f'thumb_{timestamp}.jpg')
-    thumb = _extract_frame(video_file, thumbnail_path)
+    midpoint_ts = _seconds_to_timestamp(duration_seconds / 2)
+    thumb = _extract_frame(video_file, thumbnail_path, timestamp=midpoint_ts)
     if thumb:
-        logging.info('Thumbnail extracted: %s', thumb)
+        logging.info('Thumbnail extracted at %s: %s', midpoint_ts, thumb)
 
     yt_cfg = cfg.get('youtube', {})
     display_names = yt_cfg.get('topic_display_names', {})
@@ -562,19 +594,21 @@ def run_upload_only(cfg: dict, video_file: Path, topic: str, duration_seconds: i
     logging.info('YouTube title: %s', title)
 
     try:
-        service = authenticate(yt_cfg['credentials_path'], yt_cfg['token_path'])
+        svc = service if service is not None else authenticate(
+            yt_cfg['credentials_path'], yt_cfg['token_path']
+        )
         video_id = upload_video(
-            service=service, video_path=video_file, title=title,
+            service=svc, video_path=video_file, title=title,
             description=description, tags=tags,
             category_id=category_id, privacy_status=privacy_status,
         )
         logging.info('Upload successful! video_id=%s', video_id)
         if thumb:
-            set_thumbnail(service, video_id, thumb)
+            set_thumbnail(svc, video_id, thumb)
         record_run(topic, title, video_id, duration_seconds)
         max_wait = int(cfg.get('youtube_processing_wait_seconds', 14400))
         wait_and_delete_when_public(
-            service=service, video_id=video_id, video_path=video_file,
+            service=svc, video_id=video_id, video_path=video_file,
             poll_interval=60, max_wait_seconds=max_wait, log_fn=logging.info,
         )
     except YouTubeAuthExpiredError as exc:
@@ -588,7 +622,7 @@ def run_upload_only(cfg: dict, video_file: Path, topic: str, duration_seconds: i
     logging.info('=' * 56)
 
 
-def run_pipeline(cfg: dict, topic: str, ephemeral: bool = False):
+def run_pipeline(cfg: dict, topic: str, ephemeral: bool = False, *, service=None):
     """Compile videos, upload to YouTube, and clean up."""
     # Mark today as started (preserve existing runs + failed_topics)
     state = _today_state()
@@ -617,16 +651,7 @@ def run_pipeline(cfg: dict, topic: str, ephemeral: bool = False):
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     thumbnail_path = str(thumb_dir / f'thumb_{timestamp}.jpg')
 
-    thumb = extract_thumbnail(selected_videos, thumbnail_path)
-    if thumb:
-        logging.info("Thumbnail: source image from video %s", selected_videos[0])
-    else:
-        midpoint_ts = _seconds_to_timestamp(total_seconds / 2)
-        thumb = _extract_frame(output_file, thumbnail_path, timestamp=midpoint_ts)
-        if thumb:
-            logging.info("Thumbnail: compiled-video frame at %s (source unavailable)", midpoint_ts)
-        else:
-            logging.warning("Could not extract thumbnail — upload will proceed without one.")
+    thumb = _try_thumbnail(selected_videos, thumbnail_path, output_file, total_seconds)
 
     # ── Build YouTube metadata ──
     yt_cfg = cfg.get('youtube', {})
@@ -643,11 +668,13 @@ def run_pipeline(cfg: dict, topic: str, ephemeral: bool = False):
 
     # ── Upload ──
     video_id = None
-    service = None
+    svc = None
     try:
-        service = authenticate(yt_cfg['credentials_path'], yt_cfg['token_path'])
+        svc = service if service is not None else authenticate(
+            yt_cfg['credentials_path'], yt_cfg['token_path']
+        )
         video_id = upload_video(
-            service=service, video_path=output_file, title=title,
+            service=svc, video_path=output_file, title=title,
             description=description, tags=tags,
             category_id=category_id, privacy_status=privacy_status,
         )
@@ -655,7 +682,7 @@ def run_pipeline(cfg: dict, topic: str, ephemeral: bool = False):
         logging.info(f"YouTube URL: https://www.youtube.com/watch?v={video_id}")
 
         if thumb:
-            ok = set_thumbnail(service, video_id, thumb)
+            ok = set_thumbnail(svc, video_id, thumb)
             if ok:
                 logging.info("Thumbnail set successfully.")
             else:
@@ -680,10 +707,10 @@ def run_pipeline(cfg: dict, topic: str, ephemeral: bool = False):
     # In ephemeral mode, droplet destruction handles cleanup — skip the wait.
     if ephemeral:
         logging.info("Ephemeral mode — skipping YouTube processing wait (droplet cleanup handles files).")
-    elif video_id and service:
+    elif video_id and svc:
         max_wait = int(cfg.get('youtube_processing_wait_seconds', 14400))
         deleted = wait_and_delete_when_public(
-            service=service, video_id=video_id, video_path=output_file,
+            service=svc, video_id=video_id, video_path=output_file,
             poll_interval=60, max_wait_seconds=max_wait, log_fn=logging.info,
         )
         if not deleted:
@@ -698,5 +725,5 @@ def run_pipeline(cfg: dict, topic: str, ephemeral: bool = False):
     logging.info('=' * 56)
 
 
-if __name__ == '__main__':
+if __name__ == '__main__':  # pragma: no cover
     main()
