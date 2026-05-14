@@ -511,7 +511,20 @@ def resolve_topic(cfg: dict, args) -> str | None:
         )
 
 
-def _extract_frame(video_file: Path, output_path: str, timestamp: str = '00:01:00') -> str | None:
+def _seconds_to_timestamp(seconds: float) -> str:
+    """Convert a duration in seconds to an HH:MM:SS string for ffmpeg -ss."""
+    total = max(0, int(seconds))
+    h = total // 3600
+    m = (total % 3600) // 60
+    s = total % 60
+    return f"{h:02d}:{m:02d}:{s:02d}"
+
+
+def _extract_frame(
+    video_file: Path,
+    output_path: str,
+    timestamp: str = '00:01:00',
+) -> str | None:
     """Extract single frame from video file using FFmpeg."""
     try:
         subprocess.run(
@@ -606,9 +619,14 @@ def run_pipeline(cfg: dict, topic: str, ephemeral: bool = False):
 
     thumb = extract_thumbnail(selected_videos, thumbnail_path)
     if thumb:
-        logging.info(f"Thumbnail extracted: {thumb}")
+        logging.info("Thumbnail: source image from video %s", selected_videos[0])
     else:
-        logging.warning("Could not extract thumbnail — upload will proceed without one.")
+        midpoint_ts = _seconds_to_timestamp(total_seconds / 2)
+        thumb = _extract_frame(output_file, thumbnail_path, timestamp=midpoint_ts)
+        if thumb:
+            logging.info("Thumbnail: compiled-video frame at %s (source unavailable)", midpoint_ts)
+        else:
+            logging.warning("Could not extract thumbnail — upload will proceed without one.")
 
     # ── Build YouTube metadata ──
     yt_cfg = cfg.get('youtube', {})
