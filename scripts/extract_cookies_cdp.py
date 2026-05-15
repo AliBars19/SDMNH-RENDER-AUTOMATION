@@ -31,25 +31,24 @@ def cdp_call(ws, method, params=None, msg_id=1):
             return resp.get("result", {})
 
 
-def get_all_cookies(ws_url):
+def get_all_cookies(ws_url, navigate: bool = False):
     ws = websocket.create_connection(ws_url, timeout=15)
     try:
-        # Navigate to YouTube to ensure cookies are loaded
-        cdp_call(ws, "Page.navigate", {"url": "https://www.youtube.com"}, msg_id=1)
-        time.sleep(3)
-        # Flush any navigation events
-        ws.settimeout(1)
-        try:
-            while True:
-                ws.recv()
-        except Exception:
-            pass
-        ws.settimeout(15)
-        # Get all cookies in storage
-        result = cdp_call(ws, "Storage.getCookies", {}, msg_id=2)
+        if navigate:
+            cdp_call(ws, "Page.navigate", {"url": "https://www.youtube.com"}, msg_id=1)
+            time.sleep(3)
+            ws.settimeout(1)
+            try:
+                while True:
+                    ws.recv()
+            except Exception:
+                pass
+            ws.settimeout(15)
+        # Read cookie store directly — populated from Cookies file at Chrome startup
+        result = cdp_call(ws, "Network.getAllCookies", {}, msg_id=2)
         cookies = result.get("cookies", [])
         if not cookies:
-            result = cdp_call(ws, "Network.getAllCookies", {}, msg_id=3)
+            result = cdp_call(ws, "Storage.getCookies", {}, msg_id=3)
             cookies = result.get("cookies", [])
         return cookies
     finally:

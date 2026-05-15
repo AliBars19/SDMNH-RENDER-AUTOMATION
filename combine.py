@@ -13,12 +13,12 @@ from rich.console import Console
 from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn
 import time
 
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 
 from src.database import Database, Video, Compilation, compilation_videos
 
 BASE_DIR = Path(__file__).parent.resolve()
-if sys.stdout.encoding and sys.stdout.encoding.lower() not in ('utf-8', 'utf8'):
+if sys.stdout.encoding and sys.stdout.encoding.lower() not in ('utf-8', 'utf8'):  # pragma: no cover
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 console = Console()
 
@@ -26,11 +26,17 @@ console = Console()
 def _sort_by_upload_date(video_files, videos):
     """Return video_files ordered newest-first using upload_date from the DB rows."""
     date_lookup = {v.id: v.upload_date for v in videos}
-    sorted_ids = sorted(
-        video_files.keys(),
-        key=lambda vid: date_lookup.get(vid) or datetime.min,
-        reverse=True,
-    )
+
+    def _parse_date(vid):
+        date_str = date_lookup.get(vid)
+        if not date_str:
+            return datetime.min
+        try:
+            return datetime.strptime(date_str, "%Y%m%d")
+        except ValueError:
+            return datetime.min
+
+    sorted_ids = sorted(video_files.keys(), key=_parse_date, reverse=True)
     return OrderedDict((vid, video_files[vid]) for vid in sorted_ids)
 
 
@@ -353,10 +359,81 @@ def download_videos_parallel(videos, download_path, max_workers=3):
     return downloaded
 
 
+def get_video_audio_codec(video_path: Path) -> str | None:
+    """Return the audio codec name for a video file via ffprobe, or None on failure."""
+    try:
+        cmd = [
+            'ffprobe', '-v', 'quiet', '-print_format', 'json',
+            '-show_streams', '-select_streams', 'a:0', str(video_path)
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        data = json.loads(result.stdout)
+        streams = data.get('streams', [])
+        if streams:
+            return streams[0].get('codec_name')
+    except Exception:
+        pass
+    return None
+
+
+def filter_compatible_videos(
+    video_files: dict,
+    logger: logging.Logger | None = None,
+) -> dict:
+    """
+    Drop videos whose audio codec doesn't match the majority codec.
+
+    Uses ffprobe to detect the audio codec of each file. Files where ffprobe
+    fails are kept (can't know they're incompatible). Logs a WARNING for every
+    dropped file but does not raise.
+
+    Returns a new dict preserving insertion order of compatible files.
+    """
+    _log = logger or logging.getLogger(__name__)
+
+    if len(video_files) <= 1:
+        return dict(video_files)
+
+    codec_map: dict[str, str] = {}
+    for vid_id, path in video_files.items():
+        codec = get_video_audio_codec(path)
+        if codec:
+            codec_map[vid_id] = codec
+
+    if not codec_map:
+        return dict(video_files)
+
+    # Find the most common codec
+    counts = Counter(codec_map.values())
+    majority_codec, _ = counts.most_common(1)[0]
+
+    compatible = {}
+    for vid_id, path in video_files.items():
+        codec = codec_map.get(vid_id)
+        if codec is None or codec == majority_codec:
+            compatible[vid_id] = path
+        else:
+            _log.warning(
+                "Skipping incompatible video %s (audio codec '%s' ≠ majority '%s'): %s",
+                vid_id, codec, majority_codec, path.name,
+            )
+            console.print(
+                f"[yellow]  Skipping incompatible audio ({codec} ≠ {majority_codec}): "
+                f"{path.name}[/yellow]"
+            )
+
+    return compatible
+
+
 def compile_videos(video_files, topic, output_path, auto_mode=False):
     """Concat downloaded videos via FFmpeg stream-copy (no re-encode, ever)."""
     if not video_files:
         console.print("[red]No videos to compile[/red]")
+        return None
+
+    video_files = filter_compatible_videos(video_files)
+    if not video_files:
+        console.print("[red]No compatible videos remain after codec filter[/red]")
         return None
 
     concat_file = Path(output_path) / "concat_list.txt"
@@ -448,97 +525,95 @@ def run_auto(topic, max_hours=12, cfg=None):
     db = Database(cfg['db_path'])
     session = db.get_session()
 
-    os.makedirs(cfg['download_path'], exist_ok=True)
-    os.makedirs(cfg['output_path'], exist_ok=True)
-
-    # ── Sweep leftover temp files from crashed previous runs ──
-    cleanup_stale_temps(cfg['download_path'])
-
-    max_duration_seconds = int(max_hours * 3600)
-    cooldown_days = cfg.get('cooldown_days', 30)
-
-    # ── Select videos within the 12-hour cap ──
-    console.print(f"\n[bold cyan]Topic:[/bold cyan] {topic}")
-    videos = select_videos_within_duration(session, topic, max_duration_seconds, cooldown_days)
-
-    if not videos:
-        session.close()
-        raise Exception(f"No videos found for topic '{topic}' in the database. Run update_db.py first.")
-
-    console.print(f"[green]✓ Selected {len(videos)} videos[/green]")
-
-    # ── Disk space pre-check ──
-    # Estimate: ~500 MB/hour of source video after 1080p normalization,
-    # plus the compiled output is roughly the same size.  Factor of 2.5 for safety.
-    import shutil
-    est_total_seconds = sum((v.duration or 3600) for v in videos)
-    est_gb_needed = (est_total_seconds / 3600) * 0.5 * 2.5
-    disk = shutil.disk_usage(cfg['download_path'])
-    free_gb = disk.free / (1024 ** 3)
-    if free_gb < est_gb_needed:
-        session.close()
-        raise Exception(
-            f"Not enough disk space: ~{est_gb_needed:.1f} GB needed, "
-            f"{free_gb:.1f} GB free. Free up space or reduce max_compilation_hours."
-        )
-    console.print(f"[dim]  Disk space OK: ~{est_gb_needed:.1f} GB needed, {free_gb:.1f} GB free[/dim]")
-
-    # ── Download (parallel in auto mode) ──
-    max_workers = cfg.get('max_concurrent_downloads', 3)
-    video_files = download_videos_parallel(
-        videos, cfg['download_path'], max_workers=max_workers,
-    )
-
-    if not video_files:
-        session.close()
-        raise Exception("No videos downloaded — check network and OAuth credentials.")
-
-    console.print(f"[green]Downloaded {len(video_files)}/{len(videos)} videos[/green]")
-
-    # ── Sort newest-first so the compilation opens with recent content ──
-    video_files = _sort_by_upload_date(video_files, videos)
-
-    # ── Compile (auto mode — no interactive prompts) ──
-    output_file = compile_videos(video_files, topic, cfg['output_path'], auto_mode=True)
-
-    if not output_file:
-        cleanup_downloads(cfg['download_path'])
-        session.close()
-        raise Exception("Compilation failed for all methods.")
-
-    # ── Get actual compiled duration ──
-    total_seconds = get_video_duration(output_file)
-    if total_seconds == 0:
-        # Fall back to summing DB durations
-        total_seconds = sum(
-            (v.duration or 3600) for v in videos if v.id in video_files
-        )
-
-    # Capture youtube_ids as plain strings while the session is still open.
-    # After session.commit() SQLAlchemy expires all ORM attributes, and accessing
-    # them on detached objects outside this function raises DetachedInstanceError.
-    selected_youtube_ids = [v.youtube_id for v in videos]
-
-    # ── Record compilation in database ──
     try:
-        compilation = Compilation(
-            topic=topic,
-            filename=output_file.name,
-            video_count=len(video_files)
-        )
-        session.add(compilation)
-        session.flush()
+        os.makedirs(cfg['download_path'], exist_ok=True)
+        os.makedirs(cfg['output_path'], exist_ok=True)
 
-        for video_id in video_files.keys():
-            stmt = compilation_videos.insert().values(
-                compilation_id=compilation.id,
-                video_id=video_id
+        # ── Sweep leftover temp files from crashed previous runs ──
+        cleanup_stale_temps(cfg['download_path'])
+
+        max_duration_seconds = int(max_hours * 3600)
+        cooldown_days = cfg.get('cooldown_days', 30)
+
+        # ── Select videos within the 12-hour cap ──
+        console.print(f"\n[bold cyan]Topic:[/bold cyan] {topic}")
+        videos = select_videos_within_duration(session, topic, max_duration_seconds, cooldown_days)
+
+        if not videos:
+            raise Exception(f"No videos found for topic '{topic}' in the database. Run update_db.py first.")
+
+        console.print(f"[green]✓ Selected {len(videos)} videos[/green]")
+
+        # ── Disk space pre-check ──
+        # Estimate: ~500 MB/hour of source video after 1080p normalization,
+        # plus the compiled output is roughly the same size.  Factor of 2.5 for safety.
+        import shutil
+        est_total_seconds = sum((v.duration or 3600) for v in videos)
+        est_gb_needed = (est_total_seconds / 3600) * 0.5 * 2.5
+        disk = shutil.disk_usage(cfg['download_path'])
+        free_gb = disk.free / (1024 ** 3)
+        if free_gb < est_gb_needed:
+            raise Exception(
+                f"Not enough disk space: ~{est_gb_needed:.1f} GB needed, "
+                f"{free_gb:.1f} GB free. Free up space or reduce max_compilation_hours."
             )
-            session.execute(stmt)
+        console.print(f"[dim]  Disk space OK: ~{est_gb_needed:.1f} GB needed, {free_gb:.1f} GB free[/dim]")
 
-        session.commit()
-    except Exception as e:
-        console.print(f"[yellow]Warning: could not save compilation record: {e}[/yellow]")
+        # ── Download (parallel in auto mode) ──
+        max_workers = cfg.get('max_concurrent_downloads', 3)
+        video_files = download_videos_parallel(
+            videos, cfg['download_path'], max_workers=max_workers,
+        )
+
+        if not video_files:
+            raise Exception("No videos downloaded — check network and OAuth credentials.")
+
+        console.print(f"[green]Downloaded {len(video_files)}/{len(videos)} videos[/green]")
+
+        # ── Sort newest-first so the compilation opens with recent content ──
+        video_files = _sort_by_upload_date(video_files, videos)
+
+        # ── Compile (auto mode — no interactive prompts) ──
+        output_file = compile_videos(video_files, topic, cfg['output_path'], auto_mode=True)
+
+        if not output_file:
+            cleanup_downloads(cfg['download_path'])
+            raise Exception("Compilation failed for all methods.")
+
+        # ── Get actual compiled duration ──
+        total_seconds = get_video_duration(output_file)
+        if total_seconds == 0:
+            # Fall back to summing DB durations
+            total_seconds = sum(
+                (v.duration or 3600) for v in videos if v.id in video_files
+            )
+
+        # Capture youtube_ids as plain strings while the session is still open.
+        # After session.commit() SQLAlchemy expires all ORM attributes, and accessing
+        # them on detached objects outside this function raises DetachedInstanceError.
+        selected_youtube_ids = [v.youtube_id for v in videos]
+
+        # ── Record compilation in database ──
+        try:
+            compilation = Compilation(
+                topic=topic,
+                filename=output_file.name,
+                video_count=len(video_files)
+            )
+            session.add(compilation)
+            session.flush()
+
+            for video_id in video_files.keys():
+                stmt = compilation_videos.insert().values(
+                    compilation_id=compilation.id,
+                    video_id=video_id
+                )
+                session.execute(stmt)
+
+            session.commit()
+        except Exception as e:
+            console.print(f"[yellow]Warning: could not save compilation record: {e}[/yellow]")
+
     finally:
         session.close()
 
@@ -627,5 +702,5 @@ def main():
     console.print(f"[green]Compilation saved: {output_file}[/green]\n")
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()

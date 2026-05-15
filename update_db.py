@@ -37,7 +37,11 @@ def scrape_channel(channel_url):
     except subprocess.TimeoutExpired:
         console.print(f"[yellow]Warning: Timeout scraping {channel_url}[/yellow]")
         return []
-    
+
+    if result.returncode != 0:
+        console.print(f"[yellow]Warning: yt-dlp exited {result.returncode} scraping {channel_url} — channel skipped[/yellow]")
+        return []
+
     videos = []
     for line in result.stdout.splitlines():
         if not line.strip():
@@ -173,5 +177,5 @@ def main():
     console.print(f"[green] Total: {total} videos ({general_left} still in general)[/green]\n")
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()

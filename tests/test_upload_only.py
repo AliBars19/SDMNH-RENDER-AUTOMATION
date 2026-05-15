@@ -1,236 +1,180 @@
-"""Tests for --upload-only mode: _extract_frame, run_upload_only, CLI args."""
+"""Tests for --upload-only mode: _extract_frame, run_upload_only, CLI args.
+
+All ffmpeg calls use real binaries and real test video files.
+YouTube API calls are replaced by the injected FakeYouTubeService (DI).
+No unittest.mock.patch used for high-level dependencies.
+"""
 import json
 import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from automation import _extract_frame, run_upload_only
+from tests.conftest import FakeYouTubeService
 
 
 # ── _extract_frame ────────────────────────────────────────────────────────────
 
 class TestExtractFrame:
-    def test_returns_output_path_on_success(self, tmp_path):
-        output = str(tmp_path / 'thumb.jpg')
-        video = str(tmp_path / 'video.mp4')
-        Path(video).touch()
+    """Real ffmpeg calls — no subprocess patching."""
 
-        with patch('subprocess.run') as mock_run:
-            mock_run.return_value = MagicMock(returncode=0)
-            Path(output).touch()  # simulate ffmpeg creating the file
-            result = _extract_frame(Path(video), output)
+    def test_creates_jpeg_from_real_video(self, real_video, tmp_path):
+        out = str(tmp_path / "thumb.jpg")
+        result = _extract_frame(real_video, out, timestamp="00:00:02")
+        assert result == out
+        assert Path(out).stat().st_size > 1000
 
-        assert result == output
-
-    def test_returns_none_when_ffmpeg_fails(self, tmp_path):
-        output = str(tmp_path / 'thumb.jpg')
-        video = str(tmp_path / 'video.mp4')
-
-        with patch('subprocess.run', side_effect=subprocess.CalledProcessError(1, 'ffmpeg')):
-            result = _extract_frame(Path(video), output)
-
+    def test_returns_none_for_missing_video(self, tmp_path):
+        result = _extract_frame(tmp_path / "nope.mp4", str(tmp_path / "t.jpg"))
         assert result is None
 
-    def test_returns_none_when_output_not_created(self, tmp_path):
-        output = str(tmp_path / 'thumb.jpg')
-        video = str(tmp_path / 'video.mp4')
-
-        with patch('subprocess.run') as mock_run:
-            mock_run.return_value = MagicMock(returncode=0)
-            # ffmpeg runs but doesn't create the file
-            result = _extract_frame(Path(video), output)
-
+    def test_returns_none_for_corrupt_video(self, tmp_path):
+        corrupt = tmp_path / "bad.mp4"
+        corrupt.write_bytes(b"\x00" * 100)
+        result = _extract_frame(corrupt, str(tmp_path / "t.jpg"))
         assert result is None
 
-    def test_uses_correct_ffmpeg_args(self, tmp_path):
-        output = str(tmp_path / 'thumb.jpg')
-        video = tmp_path / 'video.mp4'
-        video.touch()
+    def test_custom_timestamp_extracts_frame(self, real_video, tmp_path):
+        out = str(tmp_path / "frame.jpg")
+        result = _extract_frame(real_video, out, timestamp="00:00:01")
+        assert result == out
+        assert Path(out).stat().st_size > 1000
 
-        with patch('subprocess.run') as mock_run:
-            mock_run.return_value = MagicMock(returncode=0)
-            Path(output).touch()
-            _extract_frame(video, output, timestamp='00:02:00')
-
-        args = mock_run.call_args[0][0]
-        assert 'ffmpeg' in args
-        assert '-ss' in args
-        assert '00:02:00' in args
-        assert '-vframes' in args
-        assert '1' in args
-        assert output in args
-
-    def test_default_timestamp_is_one_minute(self, tmp_path):
-        output = str(tmp_path / 'thumb.jpg')
-        video = tmp_path / 'video.mp4'
-        video.touch()
-
-        with patch('subprocess.run') as mock_run:
-            mock_run.return_value = MagicMock(returncode=0)
-            Path(output).touch()
-            _extract_frame(video, output)
-
-        args = mock_run.call_args[0][0]
-        assert '00:01:00' in args
-
-    def test_handles_exception_gracefully(self, tmp_path):
-        output = str(tmp_path / 'thumb.jpg')
-        video = tmp_path / 'video.mp4'
-
-        with patch('subprocess.run', side_effect=FileNotFoundError('ffmpeg not found')):
-            result = _extract_frame(video, output)
-
-        assert result is None
+    def test_output_file_is_jpeg(self, real_video, tmp_path):
+        out = str(tmp_path / "frame.jpg")
+        _extract_frame(real_video, out, timestamp="00:00:01")
+        data = Path(out).read_bytes()
+        assert data[:2] == b"\xff\xd8"  # JPEG magic bytes
 
 
 # ── run_upload_only ───────────────────────────────────────────────────────────
 
-@pytest.fixture
-def cfg(tmp_path):
-    return {
-        'thumbnail_path': str(tmp_path / 'thumbnails'),
-        'youtube': {
-            'credentials_path': str(tmp_path / 'client_secrets.json'),
-            'token_path': str(tmp_path / 'token.json'),
-            'description': 'Best of {topic}',
-            'tags': ['sidemen'],
-            'category_id': 24,
-            'privacy_status': 'public',
-        },
-        'youtube_processing_wait_seconds': 60,
-    }
-
-
 class TestRunUploadOnly:
-    def test_uploads_video_successfully(self, tmp_path, cfg):
-        video = tmp_path / 'comp.mp4'
-        video.write_bytes(b'fake video data')
+    """
+    Uses injected FakeYouTubeService — no patching of authenticate/upload_video.
+    Uses real ffmpeg for thumbnail extraction from actual video file.
+    """
 
-        mock_service = MagicMock()
-        with patch('automation.authenticate', return_value=mock_service) as mock_auth, \
-             patch('automation.upload_video', return_value='abc123') as mock_upload, \
-             patch('automation.set_thumbnail') as mock_thumb, \
-             patch('automation.record_run') as mock_record, \
-             patch('automation.wait_and_delete_when_public') as mock_wait, \
-             patch('automation._extract_frame', return_value=None):
+    def test_uploads_video_and_records_run(self, real_video, upload_only_cfg, fake_yt_service, tmp_path, monkeypatch):
+        monkeypatch.setattr("automation.LAST_RUN_FILE", tmp_path / "last_run.json")
 
-            run_upload_only(cfg, video, 'among_us', 7200)
+        run_upload_only(upload_only_cfg, real_video, "among_us", 4, service=fake_yt_service)
 
-        mock_auth.assert_called_once()
-        mock_upload.assert_called_once()
-        upload_kwargs = mock_upload.call_args[1]
-        assert upload_kwargs['video_path'] == video
-        assert upload_kwargs['privacy_status'] == 'public'
-        mock_record.assert_called_once()
-        call_args = mock_record.call_args[0]
-        assert call_args[0] == 'among_us'
-        assert call_args[2] == 'abc123'
-        assert call_args[3] == 7200
+        last_run = json.loads((tmp_path / "last_run.json").read_text())
+        runs = last_run["runs"]
+        assert len(runs) == 1
+        assert runs[0]["topic"] == "among_us"
+        assert runs[0]["video_id"] == fake_yt_service.video_id
+        assert runs[0]["duration_seconds"] == 4
 
-    def test_sets_thumbnail_when_extracted(self, tmp_path, cfg):
-        video = tmp_path / 'comp.mp4'
-        video.write_bytes(b'fake')
-        thumb = str(tmp_path / 'thumb.jpg')
+    def test_title_formatted_correctly(self, real_video, upload_only_cfg, tmp_path, monkeypatch):
+        monkeypatch.setattr("automation.LAST_RUN_FILE", tmp_path / "last_run.json")
+        svc = FakeYouTubeService()
 
-        with patch('automation.authenticate', return_value=MagicMock()), \
-             patch('automation.upload_video', return_value='vid123'), \
-             patch('automation.set_thumbnail') as mock_set_thumb, \
-             patch('automation.record_run'), \
-             patch('automation.wait_and_delete_when_public'), \
-             patch('automation._extract_frame', return_value=thumb):
+        run_upload_only(upload_only_cfg, real_video, "among_us", 10800, service=svc)
 
-            run_upload_only(cfg, video, 'football', 3600)
+        last_run = json.loads((tmp_path / "last_run.json").read_text())
+        title = last_run["runs"][0]["title"]
+        assert "AMONG US" in title
+        assert "3" in title  # 3-hour video
 
-        mock_set_thumb.assert_called_once()
+    def test_thumbnail_extracted_from_real_video(self, real_video, upload_only_cfg, tmp_path, monkeypatch):
+        # duration=4 → midpoint at 2s, within the 5s real_video
+        monkeypatch.setattr("automation.LAST_RUN_FILE", tmp_path / "last_run.json")
+        svc = FakeYouTubeService()
 
-    def test_skips_thumbnail_when_extraction_fails(self, tmp_path, cfg):
-        video = tmp_path / 'comp.mp4'
-        video.write_bytes(b'fake')
+        run_upload_only(upload_only_cfg, real_video, "gaming", 4, service=svc)
 
-        with patch('automation.authenticate', return_value=MagicMock()), \
-             patch('automation.upload_video', return_value='vid123'), \
-             patch('automation.set_thumbnail') as mock_set_thumb, \
-             patch('automation.record_run'), \
-             patch('automation.wait_and_delete_when_public'), \
-             patch('automation._extract_frame', return_value=None):
+        thumb_dir = Path(upload_only_cfg["thumbnail_path"])
+        assert thumb_dir.exists()
+        jpgs = list(thumb_dir.glob("*.jpg"))
+        assert len(jpgs) == 1
+        assert jpgs[0].stat().st_size > 1000
 
-            run_upload_only(cfg, video, 'football', 3600)
+    def test_set_thumbnail_called_when_extracted(self, real_video, upload_only_cfg, tmp_path, monkeypatch):
+        # duration=4 → midpoint at 2s, within the 5s real_video — thumbnail extraction succeeds
+        monkeypatch.setattr("automation.LAST_RUN_FILE", tmp_path / "last_run.json")
+        svc = FakeYouTubeService()
 
-        mock_set_thumb.assert_not_called()
+        run_upload_only(upload_only_cfg, real_video, "football", 4, service=svc)
 
-    def test_logs_error_on_upload_failure(self, tmp_path, cfg, caplog):
+        assert svc.thumbnails_resource.set_called
+        assert svc.thumbnails_resource.last_video_id == svc.video_id
+
+    def test_logs_error_on_upload_exception(self, real_video, upload_only_cfg, tmp_path, monkeypatch, caplog):
         import logging
-        video = tmp_path / 'comp.mp4'
-        video.write_bytes(b'fake')
+        monkeypatch.setattr("automation.LAST_RUN_FILE", tmp_path / "last_run.json")
+        from googleapiclient.errors import HttpError
+        import httplib2
+        resp = httplib2.Response({"status": 403})
+        svc = FakeYouTubeService(raise_on_insert=HttpError(resp=resp, content=b"Forbidden"))
 
-        with patch('automation.authenticate', side_effect=Exception('token expired')), \
-             patch('automation._extract_frame', return_value=None):
-            with caplog.at_level(logging.ERROR):
-                run_upload_only(cfg, video, 'gaming', 1800)
+        with caplog.at_level(logging.ERROR, logger="automation"):
+            run_upload_only(upload_only_cfg, real_video, "gaming", 1800, service=svc)
 
-        assert any('token expired' in r.message for r in caplog.records)
+        assert any("Upload failed" in r.message or "403" in r.message for r in caplog.records)
 
-    def test_creates_thumbnail_dir(self, tmp_path, cfg):
-        video = tmp_path / 'comp.mp4'
-        video.write_bytes(b'fake')
-        thumb_dir = tmp_path / 'thumbnails'
+    def test_creates_thumbnail_dir_if_missing(self, real_video, upload_only_cfg, tmp_path, monkeypatch):
+        monkeypatch.setattr("automation.LAST_RUN_FILE", tmp_path / "last_run.json")
+        thumb_dir = Path(upload_only_cfg["thumbnail_path"])
         assert not thumb_dir.exists()
+        svc = FakeYouTubeService()
 
-        with patch('automation.authenticate', side_effect=Exception('skip')), \
-             patch('automation._extract_frame', return_value=None):
-            run_upload_only(cfg, video, 'gaming', 1800)
+        run_upload_only(upload_only_cfg, real_video, "gaming", 1800, service=svc)
 
         assert thumb_dir.exists()
 
-    def test_title_formatted_from_topic_and_duration(self, tmp_path, cfg):
-        video = tmp_path / 'comp.mp4'
-        video.write_bytes(b'fake')
+    def test_no_thumbnail_set_when_extraction_fails(self, tmp_path, upload_only_cfg, monkeypatch):
+        monkeypatch.setattr("automation.LAST_RUN_FILE", tmp_path / "last_run.json")
+        corrupt = tmp_path / "corrupt.mp4"
+        corrupt.write_bytes(b"\x00" * 50)
+        svc = FakeYouTubeService()
 
-        with patch('automation.authenticate', return_value=MagicMock()), \
-             patch('automation.upload_video', return_value='x') as mock_upload, \
-             patch('automation.record_run'), \
-             patch('automation.wait_and_delete_when_public'), \
-             patch('automation._extract_frame', return_value=None):
+        run_upload_only(upload_only_cfg, corrupt, "football", 3600, service=svc)
 
-            run_upload_only(cfg, video, 'among_us', 10800)  # 3h
+        assert not svc.thumbnails_resource.set_called
 
-        title = mock_upload.call_args[1]['title']
-        assert 'AMONG US' in title.upper() or 'among_us' in title.lower()
-        assert '3' in title  # 3 hour
+    def test_run_completes_with_private_privacy_status(self, real_video, upload_only_cfg, tmp_path, monkeypatch):
+        monkeypatch.setattr("automation.LAST_RUN_FILE", tmp_path / "last_run.json")
+        upload_only_cfg["youtube"]["privacy_status"] = "private"
+        svc = FakeYouTubeService()
+
+        run_upload_only(upload_only_cfg, real_video, "gaming", 4, service=svc)
+
+        last_run = json.loads((tmp_path / "last_run.json").read_text())
+        assert last_run["runs"][0]["video_id"] == svc.video_id
 
 
 # ── CLI --upload-only flag ────────────────────────────────────────────────────
 
 class TestUploadOnlyCLI:
-    def test_upload_only_flag_parsed(self, tmp_path):
-        """--upload-only, --upload-topic, --upload-duration are accepted."""
+
+    def test_upload_only_flag_parsed(self):
         import argparse
-        # Re-create just the parser logic to verify args
         parser = argparse.ArgumentParser()
-        parser.add_argument('--upload-only', type=str, default=None)
-        parser.add_argument('--upload-topic', type=str, default=None)
-        parser.add_argument('--upload-duration', type=int, default=None)
+        parser.add_argument("--upload-only", type=str, default=None)
+        parser.add_argument("--upload-topic", type=str, default=None)
+        parser.add_argument("--upload-duration", type=int, default=None)
 
         args = parser.parse_args([
-            '--upload-only', '/tmp/video.mp4',
-            '--upload-topic', 'gaming',
-            '--upload-duration', '7200',
+            "--upload-only", "/tmp/video.mp4",
+            "--upload-topic", "gaming",
+            "--upload-duration", "7200",
         ])
 
-        assert args.upload_only == '/tmp/video.mp4'
-        assert args.upload_topic == 'gaming'
+        assert args.upload_only == "/tmp/video.mp4"
+        assert args.upload_topic == "gaming"
         assert args.upload_duration == 7200
 
     def test_upload_only_defaults_to_none(self):
         import argparse
         parser = argparse.ArgumentParser()
-        parser.add_argument('--upload-only', type=str, default=None)
-        parser.add_argument('--upload-topic', type=str, default=None)
-        parser.add_argument('--upload-duration', type=int, default=None)
+        parser.add_argument("--upload-only", type=str, default=None)
+        parser.add_argument("--upload-topic", type=str, default=None)
+        parser.add_argument("--upload-duration", type=int, default=None)
 
         args = parser.parse_args([])
         assert args.upload_only is None
@@ -238,12 +182,13 @@ class TestUploadOnlyCLI:
         assert args.upload_duration is None
 
     def test_upload_only_exits_when_file_missing(self, tmp_path):
-        """automation.py --upload-only with nonexistent file should exit 1."""
         result = subprocess.run(
-            [sys.executable, 'automation.py',
-             '--upload-only', str(tmp_path / 'nonexistent.mp4'),
-             '--upload-topic', 'gaming',
-             '--upload-duration', '3600'],
+            [
+                sys.executable, "automation.py",
+                "--upload-only", str(tmp_path / "nonexistent.mp4"),
+                "--upload-topic", "gaming",
+                "--upload-duration", "3600",
+            ],
             cwd=str(Path(__file__).parent.parent),
             capture_output=True,
         )
