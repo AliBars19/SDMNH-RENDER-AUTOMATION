@@ -248,8 +248,10 @@ def select_topic_by_rank(
       - Has not been used >= max_uses_per_week times in the current calendar week
       - Is not in skip_topics (e.g. topics that already failed today)
 
-    Topics are ranked by the total view_count of all their videos (descending).
-    Falls back to 'general' if all specific topics are exhausted.
+    Topics are ranked by RECENCY-WEIGHTED view_count of their videos (descending).
+    Each video contributes views * max(0, 1 - age_days/900) so old viral clips
+    are heavily discounted vs recent uploads. Falls back to 'general' if all
+    specific topics are exhausted.
     """
     from sqlalchemy import func
     from src.database import Compilation
@@ -272,8 +274,12 @@ def select_topic_by_rank(
     for t, cnt in rows:
         weekly_counts[t] = cnt
 
-    # Score every eligible topic by aggregate view_count
-    topic_scores: list[tuple[str, int]] = []
+    # Score every eligible topic by RECENCY-WEIGHTED aggregate view_count.
+    # Each video: views * max(0, 1 - age_days / 900). 30mo+ old videos contribute 0.
+    RECENCY_CUTOFF_DAYS = 30 * 30
+    now_ts = datetime.now(timezone.utc).timestamp()
+
+    topic_scores: list[tuple[str, float]] = []
     for topic in topics_config:
         if topic == 'general' or topic in skip:
             continue
@@ -281,23 +287,31 @@ def select_topic_by_rank(
             logging.debug("Topic '%s' skipped — used %d/%d times this week",
                           topic, weekly_counts[topic], max_uses_per_week)
             continue
-        video_count = session.query(Video).filter(Video.topic == topic).count()
-        if video_count == 0:
+        videos = session.query(Video).filter(Video.topic == topic).all()
+        if not videos:
             continue
-        total_views: int = (
-            session.query(func.sum(Video.view_count))
-            .filter(Video.topic == topic, Video.view_count.isnot(None))
-            .scalar()
-        ) or 0
-        topic_scores.append((topic, total_views))
+        weighted_views = 0.0
+        for v in videos:
+            if not v.view_count or not v.upload_date:
+                continue
+            try:
+                ts = datetime.strptime(v.upload_date, "%Y%m%d").timestamp()
+            except ValueError:
+                continue
+            age_days = max(0.0, (now_ts - ts) / 86400.0)
+            recency = max(0.0, 1.0 - age_days / RECENCY_CUTOFF_DAYS)
+            weighted_views += v.view_count * recency
+        if weighted_views <= 0:
+            continue
+        topic_scores.append((topic, weighted_views))
 
     if topic_scores:
         topic_scores.sort(key=lambda x: x[1], reverse=True)
         chosen, chosen_views = topic_scores[0]
         skipped_msg = f", skipped today: {sorted(skip)}" if skip else ""
         logging.info(
-            "Selected topic '%s' (rank 1 of %d eligible, %s total views%s)",
-            chosen, len(topic_scores), f"{chosen_views:,}", skipped_msg,
+            "Selected topic '%s' (rank 1 of %d eligible, %s recency-weighted views%s)",
+            chosen, len(topic_scores), f"{int(chosen_views):,}", skipped_msg,
         )
         return chosen
 

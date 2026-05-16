@@ -235,11 +235,13 @@ class TestScoreVideo:
         assert s_new > s_old
 
     def test_none_views_treated_as_zero(self):
-        v = self._make_video_obj(None, "20240101")
-        ts = datetime.strptime("20240101", "%Y%m%d").timestamp()
+        # Use today's date so recency score is ~1.0 regardless of when test runs
+        today = datetime.now().strftime("%Y%m%d")
+        v = self._make_video_obj(None, today)
+        ts = datetime.strptime(today, "%Y%m%d").timestamp()
         score = combine._score_video(v, 1_000_000, ts, ts)
-        # pop_score=0 (0/1M), rec_score=0.5 (date_range=0), total = 0*0.6 + 0.5*0.4 = 0.2
-        assert score == pytest.approx(0.2, abs=0.01)
+        # pop_score=0, rec_score≈1.0 (today), total = 0*0.2 + 1.0*0.8 = 0.8
+        assert score == pytest.approx(0.8, abs=0.05)
 
     def test_invalid_date_falls_back_gracefully(self):
         v = self._make_video_obj(100, "invalid_date")
@@ -251,9 +253,27 @@ class TestScoreVideo:
         v = self._make_video_obj(0, "20240101")
         ts = datetime.strptime("20240101", "%Y%m%d").timestamp()
         score = combine._score_video(v, 0, ts, ts)
-        # pop_score=0 (max_views=0 branch), rec_score=0.5, total=0.2 — no ZeroDivisionError
+        # pop_score=0 (max_views=0 branch); no ZeroDivisionError
         assert isinstance(score, float)
         assert 0.0 <= score <= 1.0
+
+    def test_old_video_beyond_cutoff_gets_zero_recency(self):
+        # Video from 2018 = far beyond 30-month cutoff
+        v = self._make_video_obj(1_000_000, "20180101")
+        ts = datetime.strptime("20180101", "%Y%m%d").timestamp()
+        score = combine._score_video(v, 1_000_000, ts, ts)
+        # rec_score=0 (>30mo old), pop_score=1.0, total = 1.0*0.2 + 0*0.8 = 0.2
+        assert score == pytest.approx(0.2, abs=0.01)
+
+    def test_recency_dominates_popularity(self):
+        # Old viral video (10M views, 4 years old) should lose to recent low-view video
+        today = datetime.now().strftime("%Y%m%d")
+        old_viral = self._make_video_obj(10_000_000, "20220101")
+        new_small = self._make_video_obj(10_000, today)
+        ts = datetime.now().timestamp()
+        s_old = combine._score_video(old_viral, 10_000_000, ts, ts)
+        s_new = combine._score_video(new_small, 10_000_000, ts, ts)
+        assert s_new > s_old
 
 
 # ── select_videos_within_duration ─────────────────────────────────────────────
