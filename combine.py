@@ -119,21 +119,41 @@ def select_videos(session, topic, count, cooldown_days):
     return available[:count]
 
 
+RECENCY_CUTOFF_DAYS = 30 * 30  # 30 months (~900 days), drives rec_score to 0
+POP_WEIGHT = 0.2
+REC_WEIGHT = 0.8
+
+
+def _video_age_days(video, now_ts: float | None = None) -> float | None:
+    """Days between upload and now. None if upload_date missing/unparseable."""
+    if not video.upload_date:
+        return None
+    try:
+        ts = datetime.strptime(video.upload_date, "%Y%m%d").timestamp()
+    except ValueError:
+        return None
+    if now_ts is None:
+        now_ts = datetime.now(timezone.utc).timestamp()
+    return max(0.0, (now_ts - ts) / 86400.0)
+
+
 def _score_video(video, max_views: int, newest_ts: float, oldest_ts: float) -> float:
-    """Score video by popularity (60%) + recency (40%). Higher = better."""
-    # Popularity: normalized view count (0-1)
+    """Score by popularity (20%) + absolute recency (80%). Newer = much better.
+
+    newest_ts/oldest_ts kept for signature compat; recency now absolute-vs-now,
+    not normalized-within-bucket, so 5-year-old clips can't dominate just by being
+    the 'newest' available in a topic where everything is old.
+    """
     views = video.view_count or 0
     pop_score = views / max_views if max_views > 0 else 0
 
-    # Recency: normalized upload date (0-1, newest=1)
-    try:
-        ts = datetime.strptime(video.upload_date, "%Y%m%d").timestamp() if video.upload_date else oldest_ts
-    except ValueError:
-        ts = oldest_ts
-    date_range = newest_ts - oldest_ts
-    rec_score = (ts - oldest_ts) / date_range if date_range > 0 else 0.5
+    age_days = _video_age_days(video)
+    if age_days is None:
+        rec_score = 0.0
+    else:
+        rec_score = max(0.0, 1.0 - age_days / RECENCY_CUTOFF_DAYS)
 
-    return (pop_score * 0.6) + (rec_score * 0.4)
+    return (pop_score * POP_WEIGHT) + (rec_score * REC_WEIGHT)
 
 
 def select_videos_within_duration(session, topic, max_duration_seconds, cooldown_days):
@@ -147,7 +167,18 @@ def select_videos_within_duration(session, topic, max_duration_seconds, cooldown
     """
     DEFAULT_DURATION = 3600  # seconds assumed when duration is NULL in DB
 
-    all_videos = session.query(Video).filter(Video.topic == topic).all()
+    raw_videos = session.query(Video).filter(Video.topic == topic).all()
+
+    now_ts = datetime.now(timezone.utc).timestamp()
+    fresh_videos = [v for v in raw_videos if (_video_age_days(v, now_ts) or 1e9) <= RECENCY_CUTOFF_DAYS]
+
+    # If hard cutoff leaves nothing, fall back to full pool rather than empty compilation
+    all_videos = fresh_videos if fresh_videos else raw_videos
+    if fresh_videos and len(fresh_videos) < len(raw_videos):
+        console.print(
+            f"[dim]  Age filter: {len(raw_videos) - len(fresh_videos)} videos dropped "
+            f"(>{RECENCY_CUTOFF_DAYS} days old)[/dim]"
+        )
 
     if not all_videos:
         return []
