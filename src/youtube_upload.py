@@ -18,6 +18,7 @@ NOTE: To upload custom thumbnails your YouTube channel must be verified
 
 import logging
 import os
+import re
 import urllib.request
 from pathlib import Path
 
@@ -125,6 +126,59 @@ def format_title(
     hours_raw = max(1.0, round(duration_seconds / 3600 * 2) / 2)
     hours = f"{hours_raw:g}"
     return title_format.format(topic=topic_display, hours=hours)
+
+
+CHANNEL_SUFFIX_RE = re.compile(
+    r"\s*\((?:sidemen gaming|moresidemen|more sidemen|sidemen reacts|sidemen shorts)\)\s*$",
+    re.IGNORECASE,
+)
+
+YT_TITLE_MAX_LEN = 100
+
+
+def _clean_video_title(raw: str) -> str:
+    """Strip channel-suffix parentheticals and trim whitespace."""
+    if not raw:
+        return ""
+    cleaned = CHANNEL_SUFFIX_RE.sub("", raw).strip()
+    # Collapse trailing punctuation that looks dangling after suffix strip
+    return cleaned.rstrip(" -|·•")
+
+
+def format_title_from_lead(
+    selected_videos: list,
+    duration_seconds: float,
+    *,
+    fallback_topic: str = "",
+    display_names: dict[str, str] | None = None,
+    title_format: str = DEFAULT_TITLE_FORMAT,
+) -> str:
+    """
+    Build a YouTube title from the lead (first) selected video's title.
+
+    Strips channel-suffix parentheticals and appends a duration marker. Falls
+    back to the template-based format_title if no usable lead title exists.
+    Truncates to 100 chars (YouTube limit) — duration suffix is preserved by
+    trimming the base title, not the suffix.
+    """
+    hours_raw = max(1.0, round(duration_seconds / 3600 * 2) / 2)
+    hours = f"{hours_raw:g}"
+    suffix = f" | {hours} HOUR COMPILATION"
+
+    lead = selected_videos[0] if selected_videos else None
+    raw_title = getattr(lead, "title", None) if lead is not None else None
+    if not isinstance(raw_title, str):
+        raw_title = ""
+    base = _clean_video_title(raw_title)
+
+    if not base:
+        return format_title(fallback_topic, duration_seconds, display_names or {}, title_format)
+
+    max_base = YT_TITLE_MAX_LEN - len(suffix)
+    if len(base) > max_base:
+        base = base[: max_base - 1].rstrip() + "…"
+
+    return f"{base}{suffix}"
 
 
 def format_description(

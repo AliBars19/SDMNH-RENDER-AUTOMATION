@@ -1,6 +1,17 @@
 import pytest
 
-from src.youtube_upload import build_tags, format_description, format_title
+import types
+
+from src.youtube_upload import (
+    build_tags,
+    format_description,
+    format_title,
+    format_title_from_lead,
+)
+
+
+def _vid(title: str):
+    return types.SimpleNamespace(title=title)
 
 
 @pytest.fixture
@@ -53,6 +64,54 @@ class TestFormatTitle:
             "quiz", 3600, display_names, title_format="{topic} ({hours}h)"
         )
         assert result == "QUIZ (1h)"
+
+
+class TestFormatTitleFromLead:
+
+    def test_uses_lead_video_title(self, display_names):
+        videos = [_vid("SIDEMEN AMONG US BUT YOU CAN REWIND TIME")]
+        result = format_title_from_lead(videos, 3600, display_names=display_names)
+        assert result == "SIDEMEN AMONG US BUT YOU CAN REWIND TIME | 1 HOUR COMPILATION"
+
+    def test_strips_sidemen_gaming_suffix(self, display_names):
+        videos = [_vid("The SIDEMEN play AMONG US (Sidemen Gaming)")]
+        result = format_title_from_lead(videos, 7200, display_names=display_names)
+        assert result == "The SIDEMEN play AMONG US | 2 HOUR COMPILATION"
+
+    def test_strips_moresidemen_suffix(self, display_names):
+        videos = [_vid("SIDEMEN GTA 5 CHAOS (MoreSidemen)")]
+        result = format_title_from_lead(videos, 3600, display_names=display_names)
+        assert result == "SIDEMEN GTA 5 CHAOS | 1 HOUR COMPILATION"
+
+    def test_rounds_to_half_hours(self, display_names):
+        videos = [_vid("SIDEMEN MUKBANG")]
+        result = format_title_from_lead(videos, 5400, display_names=display_names)
+        assert result == "SIDEMEN MUKBANG | 1.5 HOUR COMPILATION"
+
+    def test_falls_back_to_template_when_empty(self, display_names):
+        result = format_title_from_lead(
+            [], 3600, fallback_topic="among_us", display_names=display_names,
+        )
+        assert "AMONG US" in result and "HOUR" in result
+
+    def test_falls_back_when_lead_title_blank(self, display_names):
+        videos = [_vid("")]
+        result = format_title_from_lead(
+            videos, 3600, fallback_topic="quiz", display_names=display_names,
+        )
+        assert "QUIZ" in result
+
+    def test_truncates_long_title(self, display_names):
+        long_title = "SIDEMEN " + "X" * 200
+        videos = [_vid(long_title)]
+        result = format_title_from_lead(videos, 3600, display_names=display_names)
+        assert len(result) <= 100
+        assert result.endswith(" | 1 HOUR COMPILATION")
+
+    def test_no_channel_suffix_left_intact(self, display_names):
+        videos = [_vid("SIDEMEN AMONG US IN REAL LIFE 2")]
+        result = format_title_from_lead(videos, 7200, display_names=display_names)
+        assert result.startswith("SIDEMEN AMONG US IN REAL LIFE 2 |")
 
 
 class TestFormatDescription:

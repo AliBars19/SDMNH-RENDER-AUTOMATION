@@ -17,6 +17,14 @@ max_topic_uses_per_week: 2
 # Maximum compilation duration in hours — videos are selected BEFORE download to stay under this
 max_compilation_hours: 8
 
+# Topics excluded from compilation selection. These topics tend to produce generic
+# titles ("GAMING", "COMPILATION") that perform poorly. If all specific topics are
+# exhausted and 'general' is blacklisted, the run is aborted instead of posting.
+compilation_blacklist:
+  - gaming
+  - money
+  - general
+
 # How long (seconds) to wait for YouTube to finish processing before giving up on auto-delete
 # Large compilations can take several hours to process. Default: 4 hours (14400)
 youtube_processing_wait_seconds: 14400

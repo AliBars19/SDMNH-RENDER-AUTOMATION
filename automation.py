@@ -51,6 +51,7 @@ from src.youtube_upload import (
     extract_thumbnail,
     format_description,
     format_title,
+    format_title_from_lead,
     set_thumbnail,
     upload_video,
     wait_and_delete_when_public,
@@ -241,6 +242,7 @@ def select_topic_by_rank(
     topics_config: dict,
     skip_topics: list | None = None,
     max_uses_per_week: int = 2,
+    blacklist: list | None = None,
 ) -> str | None:
     """
     Pick the highest-ranked topic that:
@@ -257,6 +259,7 @@ def select_topic_by_rank(
     from src.database import Compilation
 
     skip = set(skip_topics or [])
+    blocked = set(blacklist or [])
 
     # Count how many times each topic was compiled this calendar week (Mon–Sun)
     today = datetime.now(timezone.utc).date()
@@ -281,7 +284,7 @@ def select_topic_by_rank(
 
     topic_scores: list[tuple[str, float]] = []
     for topic in topics_config:
-        if topic == 'general' or topic in skip:
+        if topic == 'general' or topic in skip or topic in blocked:
             continue
         if weekly_counts.get(topic, 0) >= max_uses_per_week:
             logging.debug("Topic '%s' skipped — used %d/%d times this week",
@@ -315,7 +318,13 @@ def select_topic_by_rank(
         )
         return chosen
 
-    # All specific topics exhausted/capped — fall back to general
+    # All specific topics exhausted/capped — fall back to general (unless blacklisted)
+    if 'general' in blocked:
+        logging.error(
+            "All specific topics exhausted/weekly-capped and 'general' is blacklisted — "
+            "aborting run (no acceptable topic available)"
+        )
+        return None
     general_count = session.query(Video).filter(Video.topic == 'general').count()
     if general_count > 0 and 'general' not in skip:
         logging.info(
@@ -523,6 +532,7 @@ def resolve_topic(cfg: dict, args) -> str | None:
             cfg['topics'],
             skip_topics=skip_today,
             max_uses_per_week=cfg.get('max_topic_uses_per_week', 2),
+            blacklist=cfg.get('compilation_blacklist', []),
         )
 
 
@@ -672,7 +682,10 @@ def run_pipeline(cfg: dict, topic: str, ephemeral: bool = False, *, service=None
     yt_cfg = cfg.get('youtube', {})
     display_names = yt_cfg.get('topic_display_names', {})
     title_format = yt_cfg.get('title_format', 'SIDEMEN {topic} - {hours} HOUR SPECIAL')
-    title = format_title(topic, total_seconds, display_names, title_format)
+    title = format_title_from_lead(
+        selected_videos, total_seconds,
+        fallback_topic=topic, display_names=display_names, title_format=title_format,
+    )
     description = format_description(topic, yt_cfg.get('description', ''), display_names)
     tags = build_tags(topic, yt_cfg.get('tags', []), yt_cfg.get('topic_tags', {}))
     category_id = str(yt_cfg.get('category_id', '24'))
